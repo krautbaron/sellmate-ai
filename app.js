@@ -898,19 +898,19 @@ platformSelector.addEventListener('click', (e) => {
   });
 });
 
-// Image Handling & Compression (resizes mobile photos to max 1600px for fast upload)
+// Image Handling & Compression (resizes mobile photos to max 1024px for ~3x faster vision upload)
 async function handleFiles(files) {
   const fileArray = Array.from(files).filter((f) => f.type.startsWith('image/'));
   if (!fileArray.length) return;
 
   for (const file of fileArray) {
-    const compressed = await compressImage(file, 1600, 0.84);
+    const compressed = await compressImage(file, 1024, 0.78);
     uploadedImages.push(compressed);
   }
   renderImagePreviews();
 }
 
-function compressImage(file, maxDimension = 1600, quality = 0.84) {
+function compressImage(file, maxDimension = 1024, quality = 0.78) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -933,10 +933,14 @@ function compressImage(file, maxDimension = 1600, quality = 0.84) {
         ctx.drawImage(img, 0, 0, width, height);
         const dataUrl = canvas.toDataURL('image/jpeg', quality);
         const base64 = dataUrl.split(',')[1];
+        const sizeKb = Math.round((base64.length * 3) / 4 / 1024);
         resolve({
           dataUrl,
           mimeType: 'image/jpeg',
-          base64
+          base64,
+          sizeKb,
+          width,
+          height
         });
       };
       img.onerror = reject;
@@ -1014,6 +1018,102 @@ function sanitizePlainTextDescription(text) {
 }
 
 // ============================================================================
+// LIVE DIAGNOSE-LOGS & STOPPUHR (Zeigt jeden Schritt & jede Latenz in Echtzeit)
+// ============================================================================
+
+let diagSessionStart = 0;
+let diagTimerInterval = null;
+let diagLogEntries = [];
+
+function startDiagSession() {
+  diagSessionStart = performance.now();
+  diagLogEntries = [];
+  const liveBox = document.getElementById('loadingLiveLogBox');
+  const diagPanel = document.getElementById('diagnosticsPanel');
+  const timerBadge = document.getElementById('loadingTimerBadge');
+  if (liveBox) liveBox.innerHTML = '';
+  if (diagPanel) diagPanel.classList.add('hidden');
+  if (timerBadge) timerBadge.textContent = '0.0s';
+
+  if (diagTimerInterval) clearInterval(diagTimerInterval);
+  diagTimerInterval = setInterval(() => {
+    const elapsed = ((performance.now() - diagSessionStart) / 1000).toFixed(1);
+    if (timerBadge) timerBadge.textContent = `${elapsed}s`;
+  }, 100);
+}
+
+function addDiagLog(message, type = 'info') {
+  const elapsed = diagSessionStart ? ((performance.now() - diagSessionStart) / 1000).toFixed(2) : '0.00';
+  const entry = { elapsed, message, type };
+  diagLogEntries.push(entry);
+  console.log(`[SellMate +${elapsed}s] ${message}`);
+
+  const colorClass =
+    type === 'success'
+      ? 'text-emerald-400'
+      : type === 'warn'
+      ? 'text-amber-300'
+      : type === 'error'
+      ? 'text-rose-400'
+      : 'text-slate-300';
+
+  const htmlLine = `<div class="${colorClass}"><span class="text-slate-500">[+${elapsed}s]</span> ${escapeHtml(message)}</div>`;
+
+  const liveBox = document.getElementById('loadingLiveLogBox');
+  if (liveBox) {
+    liveBox.insertAdjacentHTML('beforeend', htmlLine);
+    liveBox.scrollTop = liveBox.scrollHeight;
+  }
+
+  const diagContent = document.getElementById('diagnosticsLogContent');
+  if (diagContent) {
+    diagContent.insertAdjacentHTML('beforeend', htmlLine);
+  }
+}
+
+function finishDiagSession(statusLabel = '') {
+  if (diagTimerInterval) {
+    clearInterval(diagTimerInterval);
+    diagTimerInterval = null;
+  }
+  const totalSec = diagSessionStart ? ((performance.now() - diagSessionStart) / 1000).toFixed(1) : '0.0';
+  const diagPanel = document.getElementById('diagnosticsPanel');
+  const diagBadge = document.getElementById('diagnosticsSummaryBadge');
+  const diagContent = document.getElementById('diagnosticsLogContent');
+  if (diagContent) {
+    diagContent.innerHTML = diagLogEntries
+      .map((e) => {
+        const c =
+          e.type === 'success'
+            ? 'text-emerald-400'
+            : e.type === 'warn'
+            ? 'text-amber-300'
+            : e.type === 'error'
+            ? 'text-rose-400'
+            : 'text-slate-300';
+        return `<div class="${c}"><span class="text-slate-500">[+${e.elapsed}s]</span> ${escapeHtml(e.message)}</div>`;
+      })
+      .join('');
+  }
+  if (diagBadge) {
+    diagBadge.textContent = statusLabel ? `${totalSec}s • ${statusLabel}` : `Gesamt: ${totalSec}s`;
+  }
+  if (diagPanel && diagLogEntries.length > 0) {
+    diagPanel.classList.remove('hidden');
+  }
+}
+
+const btnCopyLogs = document.getElementById('btnCopyLogs');
+if (btnCopyLogs) {
+  btnCopyLogs.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const raw = diagLogEntries.map((x) => `[+${x.elapsed}s] [${x.type.toUpperCase()}] ${x.message}`).join('\n');
+    copyToClipboard(raw || 'Keine Logs vorhanden', 'Diagnose-Logs in Zwischenablage kopiert!');
+  });
+}
+
+// ============================================================================
 // UNIFIED MULTI-PROVIDER AI CLIENT (Neuralwatt, OpenRouter, Groq, Gemini)
 // ============================================================================
 
@@ -1044,24 +1144,32 @@ function extractRetryAfterSec(res, data) {
   return null;
 }
 
-// fetch mit einem gezielten Wiederholungsversuch bei 429/503, wenn der Server eine kurze Wartezeit nennt
-async function fetchWithRateLimitRetry(url, options, onStatusUpdate, label) {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await fetch(url, options);
+// Schneller Fetch mit hartem Timeout (AbortController) und sofortigem Failover ohne 20s-Blockade
+async function fetchWithRateLimitRetry(url, options, onStatusUpdate, label, timeoutMs = 24000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const t0 = performance.now();
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
     const data = await res.json().catch(() => ({}));
-    if (res.ok || (res.status !== 429 && res.status !== 503)) {
-      return { res, data };
-    }
+    const dur = ((performance.now() - t0) / 1000).toFixed(2);
     const retryAfterSec = extractRetryAfterSec(res, data);
-    // Nur warten, wenn die Wartezeit kurz ist – sonst Fehler weiterreichen (Agent pausiert selbst)
-    if (attempt === 0 && retryAfterSec !== null && retryAfterSec <= 20) {
-      for (let s = retryAfterSec; s > 0; s--) {
-        if (onStatusUpdate) onStatusUpdate(`${label}: Rate-Limit – neuer Versuch in ${s} s...`);
-        await sleep(1000);
-      }
-      continue;
+    if (!res.ok) {
+      addDiagLog(`${label}: HTTP ${res.status} nach ${dur}s (${(data?.error?.message || data?.detail || '').slice(0, 80)})`, 'warn');
+    } else {
+      addDiagLog(`${label}: OK (HTTP 200 in ${dur}s)`, 'success');
     }
     return { res, data, retryAfterSec };
+  } catch (err) {
+    const dur = ((performance.now() - t0) / 1000).toFixed(2);
+    if (err.name === 'AbortError') {
+      addDiagLog(`${label}: Timeout nach ${dur}s abgebrochen – wechsle Modell/Anbieter`, 'warn');
+      throw buildApiError(`Zeitüberschreitung (${Math.round(timeoutMs / 1000)}s) bei ${label}`, 408);
+    }
+    addDiagLog(`${label}: Netzwerkfehler nach ${dur}s (${err.message})`, 'error');
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -1084,20 +1192,27 @@ async function getGeminiModelsCached(apiKey) {
   return models;
 }
 
-async function callOpenAICompatibleVision({ provider, baseUrl, apiKey, model, systemPrompt, userPrompt, images, onStatusUpdate }) {
-  const contentArray = [];
-  images.forEach((img) => {
-    contentArray.push({
-      type: 'image_url',
-      image_url: {
-        url: `data:${img.mimeType};base64,${img.base64}`
-      }
+async function callOpenAICompatibleVision({ provider, baseUrl, apiKey, model, systemPrompt, userPrompt, images = [], maxTokens = 1400, timeoutMs = 24000, onStatusUpdate }) {
+  let userContent;
+  if (images && images.length > 0) {
+    const contentArray = [];
+    images.forEach((img) => {
+      contentArray.push({
+        type: 'image_url',
+        image_url: {
+          url: `data:${img.mimeType};base64,${img.base64}`
+        }
+      });
     });
-  });
-  contentArray.push({
-    type: 'text',
-    text: userPrompt
-  });
+    contentArray.push({
+      type: 'text',
+      text: userPrompt
+    });
+    userContent = contentArray;
+  } else {
+    // Reiner Text-Call (z.B. in Stufe 3 nach erfolgter Bild-Extraktion + Tavily-Suche) -> 4x schneller!
+    userContent = userPrompt;
+  }
 
   const headers = {
     'Content-Type': 'application/json',
@@ -1108,6 +1223,7 @@ async function callOpenAICompatibleVision({ provider, baseUrl, apiKey, model, sy
     headers['X-Title'] = 'SellMate AI';
   }
 
+  const modeTag = images && images.length > 0 ? 'Vision' : 'Turbo-Text';
   const { res, data, retryAfterSec } = await fetchWithRateLimitRetry(
     `${baseUrl}/chat/completions`,
     {
@@ -1117,13 +1233,15 @@ async function callOpenAICompatibleVision({ provider, baseUrl, apiKey, model, sy
         model,
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: contentArray }
+          { role: 'user', content: userContent }
         ],
-        temperature: 0.2
+        temperature: 0.2,
+        max_tokens: maxTokens
       })
     },
     onStatusUpdate,
-    `${PROVIDERS[provider]?.name || provider} (${model})`
+    `${PROVIDERS[provider]?.name || provider} [${modeTag}] (${model})`,
+    timeoutMs
   );
 
   if (!res.ok) {
@@ -1132,6 +1250,9 @@ async function callOpenAICompatibleVision({ provider, baseUrl, apiKey, model, sy
   }
 
   const text = data?.choices?.[0]?.message?.content || '';
+  if (!text.trim()) {
+    throw buildApiError('Leere Modell-Antwort', 500);
+  }
   return {
     rawText: text,
     usedModel: `${PROVIDERS[provider]?.name || provider}: ${model}`,
@@ -1140,10 +1261,10 @@ async function callOpenAICompatibleVision({ provider, baseUrl, apiKey, model, sy
   };
 }
 
-async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images, allowGeminiSearch = false, onStatusUpdate = null }) {
+async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = [], maxTokens = 1400, timeoutMs = 24000, allowGeminiSearch = false, onStatusUpdate = null }) {
   const providersToTry = await resolveProviderCandidates();
   if (providersToTry.length === 0) {
-    throw new Error('Kein API-Key hinterlegt. Bitte oben rechts auf den Anbieter-Button klicken und deinen API-Key (z.B. für Neuralwatt oder Gemini) speichern.');
+    throw new Error('Kein API-Key hinterlegt. Bitte oben rechts auf den Admin-Button (⚙️) klicken und deinen API-Key (z.B. für Neuralwatt oder Gemini) speichern.');
   }
 
   const errorLog = [];
@@ -1167,6 +1288,10 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images, a
 
       if (chosenModel && chosenModel !== 'auto') {
         modelsToTry.push(chosenModel);
+      } else {
+        // Nutze zuerst das zuletzt erfolgreich getestete Modell dieses Anbieters (spart Fehlversuche!)
+        const lastGood = localStorage.getItem(`sellmate_last_good_model_${prov}`);
+        if (lastGood) modelsToTry.push(lastGood);
       }
 
       // Lade gecachte oder Live-Modelle von Neuralwatt / OpenRouter / Groq
@@ -1182,12 +1307,17 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images, a
 
       if (modelsToTry.length === 0) {
         try {
+          addDiagLog(`Lade verfügbare Modelle von ${meta.name} (${baseUrl}/models)...`);
           const liveModels = await fetchOpenAICompatibleModels(baseUrl, apiKey);
           if (liveModels.length > 0) {
             localStorage.setItem(`sellmate_cached_models_${prov}`, JSON.stringify(liveModels));
-            modelsToTry.push(...liveModels);
+            liveModels.forEach((m) => {
+              if (!modelsToTry.includes(m)) modelsToTry.push(m);
+            });
           }
-        } catch (_) {}
+        } catch (e) {
+          addDiagLog(`Modell-Abruf Hinweis (${meta.name}): ${e.message}`, 'warn');
+        }
       }
 
       meta.defaultModels.forEach((dm) => {
@@ -1196,13 +1326,14 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images, a
         }
       });
 
-      // Max. 3 Modelle pro Anbieter; bei Rate-Limit direkt zum nächsten Anbieter (Limits gelten meist pro Account)
+      // Max. 3 Modelle pro Anbieter; bei Rate-Limit direkt zum nächsten Anbieter
       for (const candidateModel of modelsToTry.slice(0, 3)) {
         if (onStatusUpdate) {
           onStatusUpdate(`Analysiere über ${meta.name} (${candidateModel})...`);
         }
+        addDiagLog(`Sende Anfrage an ${meta.name} (${candidateModel}, Bilder: ${images.length})...`);
         try {
-          return await callOpenAICompatibleVision({
+          const result = await callOpenAICompatibleVision({
             provider: prov,
             baseUrl,
             apiKey,
@@ -1210,8 +1341,12 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images, a
             systemPrompt,
             userPrompt,
             images,
+            maxTokens,
+            timeoutMs,
             onStatusUpdate
           });
+          localStorage.setItem(`sellmate_last_good_model_${prov}`, candidateModel);
+          return result;
         } catch (err) {
           noteFailure(`${meta.name} (${candidateModel})`, err);
           if (err.isRateLimit) break;
@@ -1219,30 +1354,34 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images, a
       }
     } else if (meta.type === 'gemini') {
       let geminiModels = [];
+      const lastGoodGem = localStorage.getItem('sellmate_last_good_model_gemini');
       try {
         const real = await getGeminiModelsCached(apiKey);
         if (chosenModel && chosenModel !== 'auto' && real.includes(chosenModel)) {
           geminiModels.push(chosenModel);
+        } else if (lastGoodGem && real.includes(lastGoodGem)) {
+          geminiModels.push(lastGoodGem);
         }
         real.forEach((m) => {
           if (!geminiModels.includes(m)) geminiModels.push(m);
         });
       } catch (_) {
-        geminiModels = chosenModel !== 'auto' ? [chosenModel] : ['gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+        geminiModels = chosenModel !== 'auto' ? [chosenModel] : ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
       }
 
       const parts = [
-        ...images.map((img) => ({
+        ...(images || []).map((img) => ({
           inline_data: { mime_type: img.mimeType, data: img.base64 }
         })),
         { text: userPrompt }
       ];
 
-      // Bei Gemini gelten Limits pro Modell – daher bis zu 3 Modelle probieren
+      // Bei Gemini gelten Limits pro Modell – daher bis zu 3 Modelle probieren (ohne langes Warten!)
       for (const candidateModel of geminiModels.slice(0, 3)) {
         if (onStatusUpdate) {
           onStatusUpdate(`Analysiere über Gemini (${candidateModel})...`);
         }
+        addDiagLog(`Sende Anfrage an Gemini (${candidateModel}, Bilder: ${images.length})...`);
         const isGemma = candidateModel.toLowerCase().startsWith('gemma');
         const tryGeminiCall = async (withSearch) => {
           const body = {
@@ -1265,31 +1404,37 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images, a
               body: JSON.stringify(body)
             },
             onStatusUpdate,
-            `Gemini (${candidateModel})`
+            `Gemini (${candidateModel})`,
+            timeoutMs
           );
           return { ok: res.ok, status: res.status, data, usedSearch: withSearch, retryAfterSec };
         };
 
-        let resCall = await tryGeminiCall(allowGeminiSearch && errorLog.length === 0);
-        if (!resCall.ok && allowGeminiSearch && (resCall.status === 429 || resCall.status === 400)) {
-          resCall = await tryGeminiCall(false);
-        }
-
-        if (resCall.ok) {
-          const cand = resCall.data?.candidates?.[0];
-          const rawText = (cand?.content?.parts || []).map((p) => p.text || '').join('\n').trim();
-          if (rawText) {
-            return {
-              rawText,
-              usedModel: `Gemini: ${candidateModel}`,
-              usedSearch: resCall.usedSearch,
-              groundingMetadata: cand?.groundingMetadata
-            };
+        try {
+          let resCall = await tryGeminiCall(allowGeminiSearch && errorLog.length === 0);
+          if (!resCall.ok && allowGeminiSearch && (resCall.status === 429 || resCall.status === 400)) {
+            resCall = await tryGeminiCall(false);
           }
-          noteFailure(`Gemini (${candidateModel})`, buildApiError('Leere Antwort', 200));
-        } else {
-          const msg = resCall.data?.error?.message || `HTTP ${resCall.status}`;
-          noteFailure(`Gemini (${candidateModel})`, buildApiError(`${resCall.status} ${msg}`, resCall.status, resCall.retryAfterSec));
+
+          if (resCall.ok) {
+            const cand = resCall.data?.candidates?.[0];
+            const rawText = (cand?.content?.parts || []).map((p) => p.text || '').join('\n').trim();
+            if (rawText) {
+              localStorage.setItem('sellmate_last_good_model_gemini', candidateModel);
+              return {
+                rawText,
+                usedModel: `Gemini: ${candidateModel}`,
+                usedSearch: resCall.usedSearch,
+                groundingMetadata: cand?.groundingMetadata
+              };
+            }
+            noteFailure(`Gemini (${candidateModel})`, buildApiError('Leere Antwort', 200));
+          } else {
+            const msg = resCall.data?.error?.message || `HTTP ${resCall.status}`;
+            noteFailure(`Gemini (${candidateModel})`, buildApiError(`${resCall.status} ${msg}`, resCall.status, resCall.retryAfterSec));
+          }
+        } catch (err) {
+          noteFailure(`Gemini (${candidateModel})`, err);
         }
       }
     }
@@ -1307,69 +1452,97 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images, a
 }
 
 // ============================================================================
-// TAVILY LIVE-WEB-RECHERCHE PIPELINE (2-Stufen Identifikation & Preischeck)
+// TAVILY TURBO LIVE-WEB-RECHERCHE PIPELINE (Schnelle Basic-Suche + 1x Vision)
 // ============================================================================
 
 async function runTavilySearch(query, tavilyKey, maxResults = 5) {
-  const res = await fetch('https://api.tavily.com/search', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      api_key: tavilyKey,
-      query,
-      search_depth: 'advanced',
-      include_answer: true,
-      max_results: maxResults
-    })
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data?.detail || data?.error || `Tavily HTTP ${res.status}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 7500);
+  const t0 = performance.now();
+  try {
+    // search_depth: 'basic' antwortet in ~0.6s statt 6-10s bei 'advanced'!
+    const res = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        api_key: tavilyKey,
+        query,
+        search_depth: 'basic',
+        include_answer: true,
+        max_results: maxResults
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    const dur = ((performance.now() - t0) / 1000).toFixed(2);
+    if (!res.ok) {
+      const msg = data?.detail || data?.error || `Tavily HTTP ${res.status}`;
+      addDiagLog(`Tavily Fehler (${dur}s): ${msg}`, 'warn');
+      throw new Error(msg);
+    }
+    addDiagLog(`Tavily Suche "${query.slice(0, 42)}..." -> ${(data.results || []).length} Treffer in ${dur}s`, 'success');
+    return data;
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      addDiagLog(`Tavily Timeout (>7.5s) für "${query.slice(0, 35)}..."`, 'warn');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return data;
 }
 
-// Stufe 1 + 2: Lässt das Vision-Modell präzise Suchbegriffe aus dem Foto ableiten und fragt Tavily nach echten Produktdaten & Marktpreisen
+// Stufe 1 + 2: Extrahiert alle optischen Fakten & Suchbegriffe (1x Vision) und führt danach die schnelle Tavily-Suche aus
 async function performTavilyVisualResearch({ images, notes = '', onStatusUpdate = null }) {
   const tavilyKey = getTavilyApiKey();
   if (!tavilyKey) return null;
 
   try {
     if (onStatusUpdate) {
-      onStatusUpdate('Stufe 1/3: Extrahiere optische Merkmale für Tavily-Websuche...');
+      onStatusUpdate('Stufe 1/3: Schnelle Bilderkennung & Suchbegriffe...');
     }
+    addDiagLog('Stufe 1/3: Starte optische Merkmal-Extraktion (1x Vision-Upload)...');
 
-    const queryGenPrompt = `Analysiere das Foto (und ggf. die Notiz: "${notes}") ganz genau auf sichtbare Details, um den EXAKTEN Produktnamen/Titel im Internet zu finden.
+    const queryGenPrompt = `Analysiere das Foto (und ggf. die Notiz: "${notes}") ganz genau auf alle sichtbaren Details, um den EXAKTEN Produktnamen/Titel im Internet zu finden.
 Beispiele:
-- Wenn du eine Tonie-Hörspielfigur siehst (Figur auf Hörspiel-Sockel): Beschreibe Figur, Kleidung, Gegenstände in der Hand und den Sockel exakt (z.B. "Tonie Figur Löwe steht auf Büchern hält Brief Stift").
-- Wenn du Lego, Elektronik, Kleidung oder Sammlerstücke siehst: Lies alle sichtbaren Nummern, Logos, Farben und Formen ab.
+- Bei einer Tonie-Hörspielfigur (Figur auf Hörspiel-Sockel): Beschreibe Figur, Haltung, Kleidung, Gegenstände (z.B. Bücherstapel, Brief, Stift) und den Sockel exakt.
+- Bei Lego, Elektronik, Kleidung oder Sammlerstücken: Lies alle sichtbaren Nummern, Logos, Etiketten, Farben, Formen und Gebrauchsspuren ab.
 
-Antworte AUSSCHLIESSLICH als valides JSON-Objekt:
+Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt:
 {
-  "visualClues": "Kurze Beschreibung aller sichtbaren Details",
+  "visualClues": "Detaillierte Beschreibung aller sichtbaren Merkmale, Farben, Aufdrucke, System/Sockel und des optischen Zustands/Gebrauchsspuren",
   "suspectedProduct": "Deine beste Vermutung zum genauen Namen (falls bekannt)",
-  "identificationQuery": "Präzise deutsche Google/Tavily-Suchanfrage, um den exakten Namen/Titel dieser Figur oder dieses Artikels herauszufinden",
-  "priceAndRarityQuery": "Präzise deutsche Suchanfrage nach Gebrauchtpreis, Kleinanzeigen, eBay und Rarität/EOL-Status für diesen Artikel"
+  "identificationQuery": "Präzise deutsche Suchanfrage, um den exakten Namen/Titel dieser Figur oder dieses Artikels zu finden",
+  "priceAndRarityQuery": "Präzise deutsche Suchanfrage nach Gebrauchtpreis, Kleinanzeigen und Rarität/EOL-Status"
 }`;
 
     const step1 = await executeUnifiedVisionRequest({
-      systemPrompt: 'Du bist ein präziser Produkt-Detektiv für Bildmerkmale.',
+      systemPrompt: 'Du bist ein schneller, präziser Produkt-Detektiv für Bildmerkmale. Antworte nur mit kompaktem JSON.',
       userPrompt: queryGenPrompt,
       images,
+      maxTokens: 450,
+      timeoutMs: 18000,
       allowGeminiSearch: false,
       onStatusUpdate
     });
 
     const match = (step1.rawText || '').match(/\{[\s\S]*\}/);
-    if (!match) return null;
+    if (!match) {
+      addDiagLog('Stufe 1 lieferte kein JSON – fahre ohne Tavily fort', 'warn');
+      return null;
+    }
     const qObj = JSON.parse(match[0]);
 
-    const idQuery = (qObj.identificationQuery || qObj.suspectedProduct || '').trim();
+    const visualClues = (qObj.visualClues || '').trim();
+    const suspectedProduct = (qObj.suspectedProduct || '').trim();
+    const idQuery = (qObj.identificationQuery || suspectedProduct || '').trim();
     const priceQuery = (qObj.priceAndRarityQuery || `${idQuery} gebraucht Preis Kleinanzeigen Rarität`).trim();
     if (!idQuery) return null;
 
+    addDiagLog(`Erkannte Bild-Details: "${(suspectedProduct || visualClues).slice(0, 75)}"`, 'info');
+
     if (onStatusUpdate) {
-      onStatusUpdate(`Stufe 2/3: Tavily Live-Websuche nach "${idQuery.slice(0, 48)}..."`);
+      onStatusUpdate(`Stufe 2/3: Tavily Schnell-Suche nach "${idQuery.slice(0, 42)}..."`);
     }
 
     const [idSearch, priceSearch] = await Promise.all([
@@ -1388,11 +1561,15 @@ Antworte AUSSCHLIESSLICH als valides JSON-Objekt:
     }
 
     const snippets = uniqueResults
-      .slice(0, 7)
-      .map((r, idx) => `[Quelle ${idx + 1}] Titel: ${r.title}\nURL: ${r.url}\nInhalt: ${(r.content || '').slice(0, 420)}`)
+      .slice(0, 6)
+      .map((r, idx) => `[Quelle ${idx + 1}] Titel: ${r.title}\nURL: ${r.url}\nInhalt: ${(r.content || '').slice(0, 380)}`)
       .join('\n\n');
 
     const contextText = `
+=== EXTRAHIERTE BILD-MERKMALE & ZUSTAND (AUS FOTO-ANALYSE) ===
+Sichtbare Details & Zustand auf den Fotos: ${visualClues}
+Erste Modell-Vermutung: ${suspectedProduct}
+
 === ECHTE LIVE-WEBRECHERCHE (TAVILY SEARCH ERGEBNISSE) ===
 Suchanfrage 1 (Produkt-Identifikation): "${idQuery}"
 Tavily Kurzantwort 1: ${idSearch.answer || 'Siehe Quellen'}
@@ -1419,10 +1596,12 @@ Nutze diese echten Web-Treffer zwingend!
     return {
       contextText,
       groundingMetadata,
-      idQuery
+      idQuery,
+      visualClues,
+      step1Model: step1.usedModel
     };
   } catch (err) {
-    console.warn('Tavily Recherche Hinweis:', err);
+    addDiagLog(`Tavily-Pipeline Hinweis: ${err.message}`, 'warn');
     return null;
   }
 }
@@ -1446,8 +1625,12 @@ btnGenerate.addEventListener('click', async () => {
   resultSection.classList.add('hidden');
   loadingSection.classList.remove('hidden');
   btnGenerate.disabled = true;
+  startDiagSession();
 
   try {
+    const totalKb = uploadedImages.reduce((acc, i) => acc + (i.sizeKb || Math.round((i.base64.length * 3) / 4 / 1024)), 0);
+    addDiagLog(`Start: ${uploadedImages.length} Foto(s) (${totalKb} KB komprimiert), Plattform: ${PLATFORM_META[currentPlatform].name}`);
+
     const systemPrompt = getSystemPrompt(currentPlatform);
     const useSearch = toggleGoogleSearch.checked;
     const loadingSubtext = document.getElementById('loadingSubtext');
@@ -1462,6 +1645,8 @@ btnGenerate.addEventListener('click', async () => {
           if (loadingSubtext) loadingSubtext.textContent = msg;
         }
       });
+    } else if (useSearch && !getTavilyApiKey()) {
+      addDiagLog('Hinweis: Kein Tavily-Key hinterlegt – nutze direkte KI-Analyse', 'info');
     }
 
     const outputFormatInstructions = `
@@ -1489,30 +1674,64 @@ Antworte ausschließlich als valides JSON-Objekt (ohne umschließenden Markdown-
 
     const baseUserRequest = notes
       ? `Zusätzliche Angaben vom Verkäufer: "${notes}"\n\nBitte führe jetzt die Identifikation, den Raritäten-/Preis-Check und die Texterstellung für die Plattform ${PLATFORM_META[currentPlatform].name} durch.`
-      : `Bitte identifiziere alle Artikel auf den Fotos exakt, führe den strengen Raritäten- & Preis-Check durch und erstelle den Verkaufstext für ${PLATFORM_META[currentPlatform].name}.`;
+      : `Bitte identifiziere alle Artikel exakt, führe den strengen Raritäten- & Preis-Check durch und erstelle den Verkaufstext für ${PLATFORM_META[currentPlatform].name}.`;
 
     const fullUserPrompt = tavilyData
       ? `${baseUserRequest}\n\n${tavilyData.contextText}\n\n${outputFormatInstructions}`
       : `${baseUserRequest}\n\n${outputFormatInstructions}`;
 
-    const aiResponse = await executeUnifiedVisionRequest({
-      systemPrompt,
-      userPrompt: fullUserPrompt,
-      images: uploadedImages,
-      allowGeminiSearch: useSearch && !tavilyData,
-      onStatusUpdate: (msg) => {
-        if (loadingSubtext) {
-          loadingSubtext.textContent = tavilyData ? `Stufe 3/3: Erstelle Verkaufstext (${msg})...` : msg;
-        }
+    // TURBO-OPTIMIERUNG: Wenn Stufe 1 das Bild bereits analysiert hat (`tavilyData.visualClues`),
+    // senden wir in Stufe 3 KEIN zweites Mal die großen Base64-Bilder mit (`images: []`), sondern nutzen den 4x schnelleren Text-Synthese-Modus!
+    let aiResponse;
+    if (tavilyData && tavilyData.visualClues) {
+      addDiagLog('Stufe 3/3: Erstelle Verkaufstext im Turbo-Text-Modus (kein doppelter Bild-Upload nötig)...');
+      try {
+        aiResponse = await executeUnifiedVisionRequest({
+          systemPrompt,
+          userPrompt: fullUserPrompt,
+          images: [],
+          maxTokens: 1300,
+          timeoutMs: 20000,
+          allowGeminiSearch: false,
+          onStatusUpdate: (msg) => {
+            if (loadingSubtext) loadingSubtext.textContent = `Stufe 3/3: Erstelle Verkaufstext (${msg})...`;
+          }
+        });
+      } catch (_) {
+        addDiagLog('Turbo-Text-Modus Fallback auf Vision-Call...', 'warn');
+        aiResponse = await executeUnifiedVisionRequest({
+          systemPrompt,
+          userPrompt: fullUserPrompt,
+          images: uploadedImages,
+          maxTokens: 1300,
+          timeoutMs: 24000,
+          allowGeminiSearch: false
+        });
       }
-    });
+    } else {
+      aiResponse = await executeUnifiedVisionRequest({
+        systemPrompt,
+        userPrompt: fullUserPrompt,
+        images: uploadedImages,
+        maxTokens: 1400,
+        timeoutMs: 24000,
+        allowGeminiSearch: useSearch && !tavilyData,
+        onStatusUpdate: (msg) => {
+          if (loadingSubtext) loadingSubtext.textContent = msg;
+        }
+      });
+    }
 
     const parsed = parseModelResponse(aiResponse.rawText);
     const finalGrounding = tavilyData?.groundingMetadata || aiResponse.groundingMetadata;
     const usedWeb = Boolean(tavilyData) || aiResponse.usedSearch;
     const badgeModel = tavilyData ? `${aiResponse.usedModel} + Tavily` : aiResponse.usedModel;
+    addDiagLog(`Fertig! Erkannt: "${parsed.title || 'Artikel'}" über ${badgeModel}`, 'success');
+    finishDiagSession(badgeModel);
     renderResult(parsed, finalGrounding, badgeModel, usedWeb);
   } catch (err) {
+    addDiagLog(`Abbruch mit Fehler: ${err.message}`, 'error');
+    finishDiagSession('Fehler');
     errorText.textContent = err.message || 'Unbekannter Fehler bei der Anfrage.';
     errorSection.classList.remove('hidden');
   } finally {
@@ -1968,8 +2187,8 @@ async function enqueueBatchFiles(files) {
   showToast(`${imageFiles.length} Foto(s) zur Agenten-Warteschlange hinzugefügt!`);
 
   for (const file of imageFiles) {
-    // Komprimiere auf 1200px für schnelle Hintergrund-Verarbeitung & Storage
-    const compressed = await compressImage(file, 1200, 0.80);
+    // Komprimiere auf 1024px für schnelle Hintergrund-Verarbeitung & Storage
+    const compressed = await compressImage(file, 1024, 0.78);
     batchItems.unshift({
       id: 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       createdAt: Date.now(),
@@ -2103,7 +2322,9 @@ Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit diesen Feldern:
   const aiRes = await executeUnifiedVisionRequest({
     systemPrompt,
     userPrompt: batchPrompt,
-    images: [imgObj],
+    images: tavilyData && tavilyData.visualClues ? [] : [imgObj],
+    maxTokens: 1300,
+    timeoutMs: 22000,
     allowGeminiSearch: false
   });
 
