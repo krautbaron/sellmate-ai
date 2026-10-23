@@ -304,7 +304,7 @@
         <div class="flex items-center gap-2">
           <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer select-none">
             <input type="checkbox" id="toggleGoogleSearch" checked class="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500" />
-            <span>Live Google-Preischeck</span>
+            <span>Live Web-Recherche (Tavily / Google)</span>
           </label>
         </div>
       </div>
@@ -601,6 +601,29 @@
               class="hidden mt-2 w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
             />
             <p id="modelStatusHint" class="text-[11px] text-slate-400 leading-relaxed"></p>
+          </div>
+
+          <!-- Tavily Live-Web-Search Integration (für präzise Produkt-Identifikation & echte Marktpreise bei allen Anbietern!) -->
+          <div class="bg-slate-950 border border-emerald-500/30 rounded-xl p-3.5 space-y-2">
+            <div class="flex items-center justify-between">
+              <label for="tavilyApiKeyInput" class="block font-bold text-emerald-400 flex items-center gap-1.5">
+                <i data-lucide="globe" class="w-3.5 h-3.5"></i>
+                <span>Tavily Web-Search API-Key (für exakte Produktdaten & Marktpreise)</span>
+              </label>
+              <a href="https://app.tavily.com" target="_blank" rel="noopener" class="text-[11px] text-emerald-400 underline hover:text-emerald-300">
+                Gratis Key (1.000 Suchen/Monat) ↗
+              </a>
+            </div>
+            <input
+              type="password"
+              id="tavilyApiKeyInput"
+              placeholder="tvly-..."
+              class="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+            />
+            <p class="text-[11px] text-slate-400 leading-relaxed">
+              Wenn eingetragen, führt die App vor der Texterstellung automatisch eine <strong>2-stufige Live-Webrecherche über Tavily</strong> durch:
+              1. Foto-Merkmale erkennen ➔ 2. Bei Tavily exakten Produkttitel, Serie, Raritäten-Status & Kleinanzeigen-Preise abrufen ➔ 3. Detailreiche Beschreibung statt generischem Text erstellen!
+            </p>
           </div>
 
           <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">

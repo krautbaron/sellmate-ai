@@ -155,6 +155,7 @@ const customModelInput = document.getElementById('customModelInput');
 const btnFetchModels = document.getElementById('btnFetchModels');
 const modelStatusHint = document.getElementById('modelStatusHint');
 const toggleProviderFallback = document.getElementById('toggleProviderFallback');
+const tavilyApiKeyInput = document.getElementById('tavilyApiKeyInput');
 const apiKeyStatusDot = document.getElementById('apiKeyStatusDot');
 const activeProviderHeaderLabel = document.getElementById('activeProviderHeaderLabel');
 
@@ -311,6 +312,10 @@ function getModel() {
 function isFallbackEnabled() {
   const val = localStorage.getItem('sellmate_provider_fallback');
   return val === null ? true : val === 'true';
+}
+
+function getTavilyApiKey() {
+  return (localStorage.getItem('sellmate_tavily_api_key') || '').trim();
 }
 
 function getSystemPrompt(platform) {
@@ -515,9 +520,12 @@ function loadSettings() {
 function updateApiKeyIndicator() {
   const activeProv = getActiveProvider();
   const hasKey = Boolean(getProviderApiKey(activeProv));
+  const hasTavily = Boolean(getTavilyApiKey());
   const meta = PROVIDERS[activeProv] || PROVIDERS.neuralwatt;
   if (activeProviderHeaderLabel) {
-    activeProviderHeaderLabel.textContent = hasKey ? `${meta.name} aktiv` : 'Key fehlt (Admin)';
+    activeProviderHeaderLabel.textContent = hasKey
+      ? `${meta.name}${hasTavily ? ' + Tavily' : ''}`
+      : 'Key fehlt (Admin)';
   }
   if (hasKey) {
     apiKeyStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
@@ -535,6 +543,9 @@ function openAdminModal(initialTab = 'providers') {
   syncSettingsModalForProvider(activeProv);
   if (toggleProviderFallback) {
     toggleProviderFallback.checked = isFallbackEnabled();
+  }
+  if (tavilyApiKeyInput) {
+    tavilyApiKeyInput.value = getTavilyApiKey();
   }
   if (adminPromptPlatformSelect && systemPromptTextarea) {
     adminPromptPlatformSelect.value = currentPlatform;
@@ -605,6 +616,9 @@ btnSaveSettings.addEventListener('click', () => {
   if (toggleProviderFallback) {
     localStorage.setItem('sellmate_provider_fallback', String(toggleProviderFallback.checked));
   }
+  if (tavilyApiKeyInput) {
+    localStorage.setItem('sellmate_tavily_api_key', tavilyApiKeyInput.value.trim());
+  }
 
   updateApiKeyIndicator();
   showToast(`${PROVIDERS[prov].name} gespeichert!`);
@@ -650,6 +664,7 @@ function collectConfigBundle() {
   const bundle = {
     activeProvider: getActiveProvider(),
     fallback: isFallbackEnabled(),
+    tavilyKey: getTavilyApiKey(),
     keys: {},
     models: {},
     baseUrls: {},
@@ -674,6 +689,7 @@ function applyConfigBundle(bundle) {
   if (!bundle || typeof bundle !== 'object') return;
   if (bundle.activeProvider) localStorage.setItem('sellmate_active_provider', bundle.activeProvider);
   if (typeof bundle.fallback === 'boolean') localStorage.setItem('sellmate_provider_fallback', String(bundle.fallback));
+  if (bundle.tavilyKey) localStorage.setItem('sellmate_tavily_api_key', bundle.tavilyKey);
   if (bundle.keys) {
     Object.entries(bundle.keys).forEach(([p, k]) => {
       if (k) {
@@ -705,6 +721,9 @@ function buildMagicSyncUrl() {
   if (apiKeyInput && apiKeyInput.value.trim() && providerSelect) {
     localStorage.setItem(`sellmate_key_${providerSelect.value}`, apiKeyInput.value.trim());
     localStorage.setItem('sellmate_active_provider', providerSelect.value);
+  }
+  if (tavilyApiKeyInput && tavilyApiKeyInput.value.trim()) {
+    localStorage.setItem('sellmate_tavily_api_key', tavilyApiKeyInput.value.trim());
   }
   const bundle = collectConfigBundle();
   const jsonStr = JSON.stringify(bundle);
@@ -1287,6 +1306,127 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images, a
   throw finalErr;
 }
 
+// ============================================================================
+// TAVILY LIVE-WEB-RECHERCHE PIPELINE (2-Stufen Identifikation & Preischeck)
+// ============================================================================
+
+async function runTavilySearch(query, tavilyKey, maxResults = 5) {
+  const res = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      api_key: tavilyKey,
+      query,
+      search_depth: 'advanced',
+      include_answer: true,
+      max_results: maxResults
+    })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.detail || data?.error || `Tavily HTTP ${res.status}`);
+  }
+  return data;
+}
+
+// Stufe 1 + 2: Lässt das Vision-Modell präzise Suchbegriffe aus dem Foto ableiten und fragt Tavily nach echten Produktdaten & Marktpreisen
+async function performTavilyVisualResearch({ images, notes = '', onStatusUpdate = null }) {
+  const tavilyKey = getTavilyApiKey();
+  if (!tavilyKey) return null;
+
+  try {
+    if (onStatusUpdate) {
+      onStatusUpdate('Stufe 1/3: Extrahiere optische Merkmale für Tavily-Websuche...');
+    }
+
+    const queryGenPrompt = `Analysiere das Foto (und ggf. die Notiz: "${notes}") ganz genau auf sichtbare Details, um den EXAKTEN Produktnamen/Titel im Internet zu finden.
+Beispiele:
+- Wenn du eine Tonie-Hörspielfigur siehst (Figur auf Hörspiel-Sockel): Beschreibe Figur, Kleidung, Gegenstände in der Hand und den Sockel exakt (z.B. "Tonie Figur Löwe steht auf Büchern hält Brief Stift").
+- Wenn du Lego, Elektronik, Kleidung oder Sammlerstücke siehst: Lies alle sichtbaren Nummern, Logos, Farben und Formen ab.
+
+Antworte AUSSCHLIESSLICH als valides JSON-Objekt:
+{
+  "visualClues": "Kurze Beschreibung aller sichtbaren Details",
+  "suspectedProduct": "Deine beste Vermutung zum genauen Namen (falls bekannt)",
+  "identificationQuery": "Präzise deutsche Google/Tavily-Suchanfrage, um den exakten Namen/Titel dieser Figur oder dieses Artikels herauszufinden",
+  "priceAndRarityQuery": "Präzise deutsche Suchanfrage nach Gebrauchtpreis, Kleinanzeigen, eBay und Rarität/EOL-Status für diesen Artikel"
+}`;
+
+    const step1 = await executeUnifiedVisionRequest({
+      systemPrompt: 'Du bist ein präziser Produkt-Detektiv für Bildmerkmale.',
+      userPrompt: queryGenPrompt,
+      images,
+      allowGeminiSearch: false,
+      onStatusUpdate
+    });
+
+    const match = (step1.rawText || '').match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const qObj = JSON.parse(match[0]);
+
+    const idQuery = (qObj.identificationQuery || qObj.suspectedProduct || '').trim();
+    const priceQuery = (qObj.priceAndRarityQuery || `${idQuery} gebraucht Preis Kleinanzeigen Rarität`).trim();
+    if (!idQuery) return null;
+
+    if (onStatusUpdate) {
+      onStatusUpdate(`Stufe 2/3: Tavily Live-Websuche nach "${idQuery.slice(0, 48)}..."`);
+    }
+
+    const [idSearch, priceSearch] = await Promise.all([
+      runTavilySearch(idQuery, tavilyKey, 5),
+      runTavilySearch(priceQuery, tavilyKey, 4).catch(() => ({ results: [] }))
+    ]);
+
+    const allResults = [...(idSearch.results || []), ...(priceSearch.results || [])];
+    const seenUrls = new Set();
+    const uniqueResults = [];
+    for (const r of allResults) {
+      if (r?.url && !seenUrls.has(r.url)) {
+        seenUrls.add(r.url);
+        uniqueResults.push(r);
+      }
+    }
+
+    const snippets = uniqueResults
+      .slice(0, 7)
+      .map((r, idx) => `[Quelle ${idx + 1}] Titel: ${r.title}\nURL: ${r.url}\nInhalt: ${(r.content || '').slice(0, 420)}`)
+      .join('\n\n');
+
+    const contextText = `
+=== ECHTE LIVE-WEBRECHERCHE (TAVILY SEARCH ERGEBNISSE) ===
+Suchanfrage 1 (Produkt-Identifikation): "${idQuery}"
+Tavily Kurzantwort 1: ${idSearch.answer || 'Siehe Quellen'}
+
+Suchanfrage 2 (Marktpreis & Raritäten-Check): "${priceQuery}"
+Tavily Kurzantwort 2: ${priceSearch.answer || 'Siehe Quellen'}
+
+Gefundene Web-Quellen & Produktdetails:
+${snippets}
+
+WICHTIGE ANWEISUNG FÜR DIE TEXTERSTELLUNG:
+Nutze diese echten Web-Treffer zwingend!
+- Nenne den EXAKTEN offiziellen Produktnamen / Hörspiel-Titel / Modellnamen aus den Web-Quellen (keine vage Beschreibung wie "eine Löwen-Figur"!).
+- Füge echte Produktdetails aus den Quellen in die Beschreibung ein (z.B. bei Tonies/Medien: worum es geht, Laufzeit/Altersempfehlung oder besondere Merkmale; bei Technik: echte technische Daten).
+- Übernimm den echten Raritäten-/EOL-Status und realistische Sammler-/Marktpreise aus den Quellen!
+=========================================================`;
+
+    const groundingMetadata = {
+      groundingChunks: uniqueResults.slice(0, 6).map((r) => ({
+        web: { uri: r.url, title: r.title || r.url }
+      }))
+    };
+
+    return {
+      contextText,
+      groundingMetadata,
+      idQuery
+    };
+  } catch (err) {
+    console.warn('Tavily Recherche Hinweis:', err);
+    return null;
+  }
+}
+
 // Main AI Generation Call (Single Item View)
 btnGenerate.addEventListener('click', async () => {
   const apiKey = getApiKey();
@@ -1312,45 +1452,66 @@ btnGenerate.addEventListener('click', async () => {
     const useSearch = toggleGoogleSearch.checked;
     const loadingSubtext = document.getElementById('loadingSubtext');
 
+    // Falls Tavily API-Key vorhanden und Web-Recherche aktiv: 2-Stufen Live-Recherche ausführen!
+    let tavilyData = null;
+    if (useSearch && getTavilyApiKey()) {
+      tavilyData = await performTavilyVisualResearch({
+        images: uploadedImages,
+        notes,
+        onStatusUpdate: (msg) => {
+          if (loadingSubtext) loadingSubtext.textContent = msg;
+        }
+      });
+    }
+
     const outputFormatInstructions = `
-SCHRITT-FÜR-SCHRITT BILDANALYSE VOR DER ANTWORT:
-1. Beschreibe für dich zuerst, was objektiv sichtbar ist (Form, Farben, Logos, Aufdrucke, Sockel, Etiketten, Verpackung, Gebrauchsspuren).
-2. Leite erst daraus den Artikel ab. Wenn mehrere Produkte in Frage kommen, wähle das mit den meisten übereinstimmenden Merkmalen und nenne die Unsicherheit.
-3. Prüfe den Raritäten- & EOL-Status nur mit Begründung. Ohne Websuche: Preise als Schätzung kennzeichnen.
+SCHRITT-FÜR-SCHRITT BILD- & FAKTENANALYSE VOR DER ANTWORT:
+1. Verbinde die sichtbaren Bildmerkmale mit den oben gelieferten LIVE-WEBRECHERCHE-Ergebnissen (falls vorhanden).
+2. Schreibe KEINE generischen Platzhalter-Texte ("Verkaufe eine Figur in Form eines Löwen"), sondern nenne das exakte Produkt beim Namen (z.B. Tonies Hörspielfigur "Der Löwe, der nicht schreiben konnte") inklusive konkreter Details zum Produkt/Inhalt und Zustand!
+3. Prüfe den Raritäten- & EOL-Status anhand der Web-Treffer.
 
 WICHTIG FÜR DIE AUSGABE-STRUKTUR:
 Antworte ausschließlich als valides JSON-Objekt (ohne umschließenden Markdown-Text außerhalb des JSON) mit exakt diesen Feldern:
 {
-  "visualReasoning": "Kurze visuelle Begründung: welche sichtbaren Merkmale führen zur Identifikation",
+  "visualReasoning": "Kurze visuelle Begründung + Abgleich mit Web-Quellen",
   "identificationConfidence": "hoch" | "mittel" | "niedrig",
-  "identifiedItem": "Exakter Name des erkannten Artikels",
+  "identifiedItem": "Exakter offizieller Produktname",
   "priceAndRarityAnalysis": "Ausführliche Preis- & Markteinschätzung inkl. Raritäten-Check, EOL-Prüfung, Einzelpreisen und Setpreis (falls mehrere Artikel).",
-  "hasRarityWarning": true/false (true, wenn ein seltenes Sammlerstück / EOL-Tonie erkannt wurde oder separat verkauft werden sollte),
-  "title": "Optimierter, treffender Verkaufstitel",
-  "description": "Die sofort kopierfertige Beschreibung. STRIKT REINER TEXT OHNE MARKDOWN (keine **, keine ###, Aufzählungen nur mit -, Zwischenüberschriften mit Doppelpunkt, keine Versand-/Bezahlfloskeln, kein Disclaimer).",
+  "hasRarityWarning": true/false (true, wenn ein seltenes Sammlerstück / EOL erkannt wurde oder separat verkauft werden sollte),
+  "title": "Optimierter, treffender Verkaufstitel mit exaktem Modell/Titel",
+  "description": "Die sofort kopierfertige, verkaufsstarke und spezifische Beschreibung. STRIKT REINER TEXT OHNE MARKDOWN (keine **, keine ###, Aufzählungen nur mit -, Zwischenüberschriften mit Doppelpunkt, keine Versand-/Bezahlfloskeln, kein Disclaimer).",
   "attributes": {
-    "Empfohlener Preis": "z.B. 28 € VB (Rarität / EOL)",
+    "Empfohlener Preis": "z.B. 28 € VB",
     "Zustand": "z.B. Sehr gut / Gepflegt",
-    "Kategorie / Marke": "Hersteller & Modell (z.B. Tonies / Boxine)"
+    "Kategorie / Marke": "Hersteller & Serie"
   }
 }`;
 
-    const userPromptText = notes
-      ? `Zusätzliche Angaben vom Verkäufer: "${notes}"\n\nBitte führe jetzt die Identifikation, den Raritäten-/Preis-Check und die Texterstellung für die Plattform ${PLATFORM_META[currentPlatform].name} durch.\n\n${outputFormatInstructions}`
-      : `Bitte identifiziere alle Artikel auf den Fotos, führe den strengen Raritäten- & Preis-Check durch und erstelle den Verkaufstext für ${PLATFORM_META[currentPlatform].name}.\n\n${outputFormatInstructions}`;
+    const baseUserRequest = notes
+      ? `Zusätzliche Angaben vom Verkäufer: "${notes}"\n\nBitte führe jetzt die Identifikation, den Raritäten-/Preis-Check und die Texterstellung für die Plattform ${PLATFORM_META[currentPlatform].name} durch.`
+      : `Bitte identifiziere alle Artikel auf den Fotos exakt, führe den strengen Raritäten- & Preis-Check durch und erstelle den Verkaufstext für ${PLATFORM_META[currentPlatform].name}.`;
+
+    const fullUserPrompt = tavilyData
+      ? `${baseUserRequest}\n\n${tavilyData.contextText}\n\n${outputFormatInstructions}`
+      : `${baseUserRequest}\n\n${outputFormatInstructions}`;
 
     const aiResponse = await executeUnifiedVisionRequest({
       systemPrompt,
-      userPrompt: userPromptText,
+      userPrompt: fullUserPrompt,
       images: uploadedImages,
-      allowGeminiSearch: useSearch,
+      allowGeminiSearch: useSearch && !tavilyData,
       onStatusUpdate: (msg) => {
-        if (loadingSubtext) loadingSubtext.textContent = msg;
+        if (loadingSubtext) {
+          loadingSubtext.textContent = tavilyData ? `Stufe 3/3: Erstelle Verkaufstext (${msg})...` : msg;
+        }
       }
     });
 
     const parsed = parseModelResponse(aiResponse.rawText);
-    renderResult(parsed, aiResponse.groundingMetadata, aiResponse.usedModel, aiResponse.usedSearch);
+    const finalGrounding = tavilyData?.groundingMetadata || aiResponse.groundingMetadata;
+    const usedWeb = Boolean(tavilyData) || aiResponse.usedSearch;
+    const badgeModel = tavilyData ? `${aiResponse.usedModel} + Tavily` : aiResponse.usedModel;
+    renderResult(parsed, finalGrounding, badgeModel, usedWeb);
   } catch (err) {
     errorText.textContent = err.message || 'Unbekannter Fehler bei der Anfrage.';
     errorSection.classList.remove('hidden');
@@ -1897,20 +2058,33 @@ async function runBatchAgentQueue() {
 
 async function analyzeSingleBatchItemWithAgent(imgObj) {
   const systemPrompt = getSystemPrompt(currentPlatform);
+
+  // Wenn Tavily API-Key hinterlegt ist, macht auch der Hintergrund-Agent für jedes Foto die 2-Stufen-Webrecherche!
+  let tavilyData = null;
+  if (getTavilyApiKey()) {
+    tavilyData = await performTavilyVisualResearch({
+      images: [imgObj],
+      notes: '',
+      onStatusUpdate: (msg) => {
+        if (batchAgentStatusText) batchAgentStatusText.textContent = msg;
+      }
+    });
+  }
+
   const batchPrompt = `
 Du bist ein präziser Verkaufs- und Bewertungs-Agent für Gebrauchtwaren (${PLATFORM_META[currentPlatform].name}).
-Analysiere das Foto exakt:
-1. Beschreibe für dich zuerst die sichtbaren Merkmale (Logos, Aufdrucke, Etiketten, Sockel, Verpackung) und leite erst daraus den genauen Artikel ab (Hersteller, Modell, Serie). Erfinde keine konkreten Namen oder Editionen – bei Unsicherheit die wahrscheinlichste Variante nennen und identificationConfidence entsprechend setzen.
+Analysiere das Foto und die beigefügten Web-Recherche-Ergebnisse exakt:
+1. Identifiziere den genauen Artikel mit seinem EXAKTEN offiziellen Produktnamen/Titel (Hersteller, Modell, Serie/Hörspieltitel).
 2. Bewerte die VERKÄUFLICHKEIT (Nachfrage am Gebrauchtmarkt):
    - "high" (Sehr gut verkäuflich / Schnelldreher, z.B. beliebte Tonies, Marken-Elektronik, Lego, gefragte Markenkleidung)
    - "medium" (Normal verkäuflich, braucht etwas Geduld oder guten Preis)
    - "low" (Schwer einzeln verkäuflich / Massenware, besser im Konvolut/Set oder zu verschenken)
 3. Ermittle den realistischen Gebrauchtpreis in Euro (minPrice, maxPrice, recommendedPrice als Zahl) und prüfe auf RARITÄT / EOL (End-of-Life).
-4. Erstelle direkt den fertigen Verkaufstitel und die kopierfertige Beschreibung (100% reiner Text OHNE Markdown, keine **, keine ###, Aufzählungen mit -, keine Versandfloskeln, kein Disclaimer).
-
+4. Erstelle direkt den fertigen Verkaufstitel und eine spezifische, verkaufsstarke Beschreibung mit echten Produktdetails (100% reiner Text OHNE Markdown, keine **, keine ###, Aufzählungen mit -, keine Versandfloskeln, kein Disclaimer).
+${tavilyData ? '\n' + tavilyData.contextText + '\n' : ''}
 Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit diesen Feldern:
 {
-  "itemName": "Kurzer, präziser Name des erkannten Artikels",
+  "itemName": "Exakter offizieller Name des erkannten Artikels",
   "identificationConfidence": "hoch" | "mittel" | "niedrig",
   "category": "Kategorie / Marke (z.B. Tonies / Spielzeug)",
   "sellability": "high" | "medium" | "low",
@@ -1942,7 +2116,7 @@ Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit diesen Feldern:
   return {
     itemName: parsed.itemName || 'Unbekannter Artikel',
     identificationConfidence: ['hoch', 'mittel', 'niedrig'].includes(parsed.identificationConfidence) ? parsed.identificationConfidence : 'mittel',
-    priceFromWebSearch: Boolean(aiRes.usedSearch),
+    priceFromWebSearch: Boolean(tavilyData) || Boolean(aiRes.usedSearch),
     category: parsed.category || 'Allgemein',
     sellability: ['high', 'medium', 'low'].includes(parsed.sellability) ? parsed.sellability : 'medium',
     sellabilityScore: Number(parsed.sellabilityScore) || 5,
@@ -1955,7 +2129,7 @@ Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit diesen Feldern:
     bestPlatform: parsed.bestPlatform || PLATFORM_META[currentPlatform].name,
     title: parsed.title || parsed.itemName || '',
     description: sanitizePlainTextDescription(parsed.description || ''),
-    usedModel: aiRes.usedModel
+    usedModel: tavilyData ? `${aiRes.usedModel} + Tavily` : aiRes.usedModel
   };
 }
 
