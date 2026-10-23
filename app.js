@@ -532,6 +532,27 @@ function updateApiKeyIndicator() {
   } else {
     apiKeyStatusDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
   }
+
+  const btnTavilyQuickStatus = document.getElementById('btnTavilyQuickStatus');
+  if (btnTavilyQuickStatus) {
+    if (hasTavily) {
+      btnTavilyQuickStatus.textContent = '🟢 Tavily-Key aktiv';
+      btnTavilyQuickStatus.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition';
+    } else {
+      btnTavilyQuickStatus.textContent = '🟠 Tavily-Key fehlt (Hier eintragen)';
+      btnTavilyQuickStatus.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 animate-pulse transition';
+    }
+  }
+}
+
+const btnTavilyQuickStatusEl = document.getElementById('btnTavilyQuickStatus');
+if (btnTavilyQuickStatusEl) {
+  btnTavilyQuickStatusEl.addEventListener('click', () => {
+    openAdminModal('providers');
+    setTimeout(() => {
+      if (tavilyApiKeyInput) tavilyApiKeyInput.focus();
+    }, 150);
+  });
 }
 
 function getVaultString() {
@@ -1045,8 +1066,11 @@ function sanitizePlainTextDescription(text) {
     if (/privatverkauf|sachmangelhaftung|keine garantie|keine gew[äa]hrleistung|keine r[üu]cknahme|umtausch ausgeschlossen/i.test(trimmed)) {
       return false;
     }
-    // Versand- & Abholfloskeln entfernen, sofern der Nutzer sie nicht selbst in die Notizen geschrieben hat
-    if (!userWantsShipping && /^(versand\b|abholung\b|versand und abholung|versand m[öo]glich|abholung vor ort|bezahlung per|zahlung per|tierfreier nichtraucherhaushalt)/i.test(trimmed)) {
+    // Versand- & Abholfloskeln überall entfernen, sofern der Nutzer sie nicht selbst in die Notizen geschrieben hat
+    if (!userWantsShipping && /(versand m[öo]glich|abholung oder versand|versand oder abholung|abholung vor ort|versand gegen aufpreis|bezahlung per|zahlung per|tierfreier nichtraucherhaushalt)/i.test(trimmed)) {
+      return false;
+    }
+    if (/^(vb\s*\/?\s*festpreis|festpreis nach absprache)/i.test(trimmed)) {
       return false;
     }
     return true;
@@ -1543,22 +1567,22 @@ async function performTavilyVisualResearch({ images, notes = '', onStatusUpdate 
 
     const queryGenPrompt = `Analysiere das Foto (und ggf. die Notiz: "${notes}") rein optisch, um Suchbegriffe für eine Websuche zu bilden.
 
-STRENGE REGEL GEGEN HALLUZINATIONEN:
-- RATE NIEMALS EINEN CHARAKTERNAMEN, SERIENNAMEN ODER HÖRSPIELTITEL (wie "Leo Lausemaus", "Sendung mit der Maus", "Benjamin Blümchen" o.ä.), wenn dieser Name NICHT buchstäblich als lesbarer Text auf dem Artikel abgedruckt ist!
-- Wenn du ein Tier siehst, nenne NUR die Tierart (z.B. "Löwe", "Elefant", "Bär") – niemals einen geratenen Eigennamen!
-- Beschreibe Gegenstände nüchtern nach ihrer Form (z.B. wenn eine Figur auf Büchern steht und etwas Flaches/Rechteckiges oder längliches hält -> "Buch Brief Stift", NICHT "Mikrofon" raten!).
+STRENGE REGEL GEGEN MARKEN- & NAMENS-HALLUZINATIONEN:
+- RATE NIEMALS EINE MARKE WIE "McDonald's", "Happy Meal", "Disney", "Ü-Ei" ODER EINEN CHARAKTERNAMEN (wie "Leo Lausemaus", "Simba"), wenn dieser Name NICHT buchstäblich als lesbarer Text auf dem Artikel abgedruckt ist!
+- WICHTIG BEI FIGUREN: Kleine handbemalte Kunststoff-Figuren, die auf einem Sockel, Podest oder einem Stapel Bücher/Blöcken stehen, sind fast immer "Tonie Hörfiguren" (Tonies). Wenn eine Figur auf flachen rechteckigen Stapeln steht, sind das "Bücher" (Bücherstapel) und ein flacher Gegenstand in der Pfote ist ein "Buch / Brief" mit "Stift / Feder".
+- Wenn du ein Tier siehst, nenne NUR die Tierart (z.B. "Löwe", "Elefant", "Bär").
 
 Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen rein optischen Feldern:
 {
-  "systemOrBrand": "System oder Marke (z.B. 'Tonie Figur', 'Lego', 'Playmobil', 'Schleich' oder ablesbare Marke)",
-  "mainSubject": "Was stellt die Figur / das Objekt rein optisch dar? (NUR 1-3 Wörter ohne Eigennamen, z.B. 'Löwe' oder 'Ritter')",
-  "poseAndProps": "Worauf steht es und welche Gegenstände sind klar erkennbar? (Max. 5-7 Wörter, z.B. 'steht auf Stapel Bücher hält Buch Brief')",
-  "readableText": "Nur Text/Nummern, die buchstäblich auf einem Etikett/Gehäuse lesbar sind (leer lassen '', wenn kein Text sichtbar ist!)",
+  "isFigureOnBase": true/false (true, wenn es eine Kunststoff-/Hörspiel-/Spielfigur ist, insbesondere auf einem Sockel/Bücherstapel),
+  "readableBrandOrText": "NUR buchstäblich ablesbarer Text/Markenlogo auf dem Objekt (MUSS '' leer sein, wenn kein Text lesbar ist! NIEMALS McDonald's o.ä. raten!)",
+  "mainSubject": "Was stellt die Figur / das Objekt rein optisch dar? (NUR 1-3 Wörter ohne Eigennamen, z.B. 'Löwe')",
+  "poseAndProps": "Worauf steht es und welche Gegenstände hält es? (Max. 6 Wörter, z.B. 'steht auf Stapel Bücher hält Buch Stift')",
   "conditionNotes": "Sichtbarer optischer Zustand / Gebrauchsspuren auf dem Foto"
 }`;
 
     const step1 = await executeUnifiedVisionRequest({
-      systemPrompt: 'Du bist ein rein optischer Bild-Analyst. Du rätst NIEMALS Eigennamen oder Titel, sondern beschreibst nur, was physisch zu sehen ist, als kurzes JSON.',
+      systemPrompt: 'Du bist ein rein optischer Bild-Analyst. Du rätst NIEMALS Marken (kein McDonald\'s/Happy Meal!) oder Eigennamen, sondern beschreibst nur nüchtern die Form als JSON.',
       userPrompt: queryGenPrompt,
       images,
       maxTokens: 220,
@@ -1574,32 +1598,57 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen rein optisch
     }
     const qObj = JSON.parse(match[0]);
 
-    const sys = (qObj.systemOrBrand || '').trim();
-    const subj = (qObj.mainSubject || '').trim();
-    const props = (qObj.poseAndProps || '').trim();
-    const readTxt = (qObj.readableText || '').trim();
+    const isFig = Boolean(qObj.isFigureOnBase);
+    // Entferne halluzinierte Marken wie McDonald's / Happy Meal hart aus den Suchbausteinen
+    const stripHallucinations = (s) =>
+      String(s || '')
+        .replace(/mcdonald'?s|happy\s*meal|lausemaus|sendung mit der maus|ü-ei|überraschungsei/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const readTxt = stripHallucinations(qObj.readableBrandOrText);
+    const subj = stripHallucinations(qObj.mainSubject);
+    // Falls das Modell Bücher als "Blöcke" bezeichnet hat, ergänze "Bücher" für die Suche
+    let props = stripHallucinations(qObj.poseAndProps);
+    if (/bl[öo]ck|stapel/i.test(props) && !/b[üu]ch/i.test(props)) {
+      props = `${props} Bücher`;
+    }
     const cond = (qObj.conditionNotes || '').trim();
 
-    // Baue saubere, halluzinationsfreie Suchanfragen aus den rein visuellen Bausteinen
-    const idQuery = [sys, subj, props, readTxt, notes].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    // Baue 3 parallele, halluzinationsfreie Suchanfragen:
+    // 1. Reine Optik-Suche (ohne geratene Marke)
+    const pureVisualQuery = ['Figur', subj, props, readTxt, notes].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    // 2. Gezielte Tonie-Hörfigur-Prüfung (falls es eine Figur ist)
+    const tonieQuery = isFig || /löwe|bär|hase|drache|figur/i.test(subj)
+      ? ['Tonie Hörfigur', subj, props, notes].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
+      : '';
     const shortProps = props.split(/\s+/).slice(0, 3).join(' ');
-    const priceQuery = [sys, subj, shortProps, readTxt, 'gebraucht Preis Kleinanzeigen Rarität'].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    // 3. Preis- & Raritäten-Suche
+    const priceQuery = [isFig ? 'Tonie' : readTxt, subj, shortProps, 'gebraucht Preis Kleinanzeigen Rarität'].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 
-    if (!idQuery) return null;
+    if (!pureVisualQuery) return null;
 
-    addDiagLog(`Optik erkannt: System="${sys}", Motiv="${subj}", Details="${props}"`, 'info');
-    addDiagLog(`Tavily Query 1: "${idQuery}"`, 'info');
+    addDiagLog(`Optik erkannt: Motiv="${subj}", Details="${props}", FigurAufSockel=${isFig}`, 'info');
+    addDiagLog(`Tavily Suche 1 (Optik): "${pureVisualQuery}"`, 'info');
+    if (tonieQuery) addDiagLog(`Tavily Suche 2 (Tonie-Check): "${tonieQuery}"`, 'info');
 
     if (onStatusUpdate) {
-      onStatusUpdate(`Stufe 2/3: Tavily Schnell-Suche nach "${idQuery.slice(0, 44)}..."`);
+      onStatusUpdate(`Stufe 2/3: Tavily Live-Websuche nach "${(tonieQuery || pureVisualQuery).slice(0, 44)}..."`);
     }
 
-    const [idSearch, priceSearch] = await Promise.all([
-      runTavilySearch(idQuery, tavilyKey, 5),
+    const searchPromises = [
+      runTavilySearch(pureVisualQuery, tavilyKey, 4),
+      tonieQuery ? runTavilySearch(tonieQuery, tavilyKey, 5).catch(() => ({ results: [] })) : Promise.resolve({ results: [] }),
       runTavilySearch(priceQuery, tavilyKey, 4).catch(() => ({ results: [] }))
-    ]);
+    ];
 
-    const allResults = [...(idSearch.results || []), ...(priceSearch.results || [])];
+    const [visSearch, tonieSearch, priceSearch] = await Promise.all(searchPromises);
+
+    const allResults = [
+      ...(tonieSearch.results || []),
+      ...(visSearch.results || []),
+      ...(priceSearch.results || [])
+    ];
     const seenUrls = new Set();
     const uniqueResults = [];
     for (const r of allResults) {
@@ -1615,31 +1664,30 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen rein optisch
     }
 
     const snippets = uniqueResults
-      .slice(0, 6)
+      .slice(0, 7)
       .map((r, idx) => `[Quelle ${idx + 1}] Titel: ${r.title}\nURL: ${r.url}\nInhalt: ${(r.content || '').slice(0, 380)}`)
       .join('\n\n');
 
-    const visualSummary = `System/Marke: ${sys} | Hauptmotiv: ${subj} | Pose & Merkmale: ${props}${readTxt ? ` | Ablesbarer Text: ${readTxt}` : ''}${cond ? ` | Optischer Zustand: ${cond}` : ''}`;
+    const visualSummary = `Hauptmotiv: ${subj} | Pose & Merkmale: ${props}${readTxt ? ` | Ablesbarer Text: ${readTxt}` : ''}${cond ? ` | Optischer Zustand: ${cond}` : ''}`;
 
     const contextText = `
 === OPTISCHE BILD-ANALYSE DES FOTOS ===
 ${visualSummary}
 
 === ECHTE LIVE-WEBRECHERCHE (TAVILY SEARCH ERGEBNISSE) ===
-Suchanfrage 1 (Optische Produkt-Suche): "${idQuery}"
-Tavily Kurzantwort 1: ${idSearch.answer || 'Siehe Quellen'}
-
-Suchanfrage 2 (Marktpreis & Raritäten-Check): "${priceQuery}"
-Tavily Kurzantwort 2: ${priceSearch.answer || 'Siehe Quellen'}
+Suchanfrage Optik: "${pureVisualQuery}"
+Tavily Antwort Optik: ${visSearch.answer || 'Siehe Quellen'}
+${tonieQuery ? `\nSuchanfrage Tonies-Hörfiguren: "${tonieQuery}"\nTavily Antwort Tonies: ${tonieSearch.answer || 'Siehe Quellen'}\n` : ''}
+Suchanfrage Marktpreis & Rarität: "${priceQuery}"
+Tavily Antwort Preis: ${priceSearch.answer || 'Siehe Quellen'}
 
 Gefundene Web-Quellen & Produktdetails:
 ${snippets}
 
 STRENGE ANWEISUNG FÜR DEN ABGLEICH VON FOTO & WEB-QUELLEN:
 1. Vergleiche das Foto direkt mit den oben gelieferten Tavily-Web-Quellen!
-2. Bestimme aus den Web-Quellen genau denjenigen offiziellen Produktnamen / Hörspiel-Titel, dessen optische Beschreibung zum Foto passt!
-   - Beispiel: Wenn auf dem Foto ein Löwe auf einem Stapel Bücher steht und ein Buch/Brief hält, dann wähle aus den Web-Quellen den Löwen-Tonie ("Die Geschichte vom Löwen, der nicht schreiben konnte" / "Der Löwe, der nicht schreiben konnte") – und erfinde NIEMALS eine Maus wie "Leo Lausemaus"!
-3. Nenne in Titel und Beschreibung den EXAKTEN offiziellen Produktnamen aus den Web-Treffern und ergänze echte Details aus den Quellen (z.B. worum es bei dem Hörspiel/Artikel geht).
+2. ERFINDE NIEMALS "McDonald's Happy Meal" oder eine andere Marke, die nicht in den Web-Quellen steht!
+3. Wenn in den Web-Quellen eine passende Tonie-Hörfigur gefunden wurde (z.B. bei einem Löwen auf einem Stapel Bücher/Blöcke mit Buch/Brief und Stift in den Pfoten -> Tonie Hörfigur "Die Geschichte vom Löwen, der nicht schreiben konnte" / "Der Löwe, der nicht lesen/schreiben konnte" von Martin Baltscheit), dann übernimm EXAKT diesen offiziellen Produktnamen und die echten Details zum Hörspiel!
 4. Übernimm den echten Raritäten-/EOL-Status und realistische Gebrauchtpreise aus den Quellen.
 =========================================================`;
 
@@ -1652,7 +1700,7 @@ STRENGE ANWEISUNG FÜR DEN ABGLEICH VON FOTO & WEB-QUELLEN:
     return {
       contextText,
       groundingMetadata,
-      idQuery,
+      idQuery: tonieQuery || pureVisualQuery,
       visualClues: visualSummary,
       step1Model: step1.usedModel
     };
