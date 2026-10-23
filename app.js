@@ -597,6 +597,25 @@ btnCloseSettings.addEventListener('click', () => {
   settingsModal.classList.add('hidden');
 });
 
+// Auto-Save bei Eingabe im Admin-Panel (damit Keys auch ohne Klick auf "Speichern" sofort aktiv sind)
+if (tavilyApiKeyInput) {
+  tavilyApiKeyInput.addEventListener('input', () => {
+    localStorage.setItem('sellmate_tavily_api_key', tavilyApiKeyInput.value.trim());
+    updateApiKeyIndicator();
+  });
+}
+
+if (apiKeyInput) {
+  apiKeyInput.addEventListener('input', () => {
+    const prov = providerSelect ? providerSelect.value : getActiveProvider();
+    const k = apiKeyInput.value.trim();
+    localStorage.setItem(`sellmate_key_${prov}`, k);
+    localStorage.setItem('sellmate_active_provider', prov);
+    if (prov === 'gemini') localStorage.setItem('sellmate_gemini_api_key', k);
+    updateApiKeyIndicator();
+  });
+}
+
 btnSaveSettings.addEventListener('click', () => {
   const prov = providerSelect ? providerSelect.value : 'neuralwatt';
   const key = apiKeyInput.value.trim();
@@ -898,19 +917,19 @@ platformSelector.addEventListener('click', (e) => {
   });
 });
 
-// Image Handling & Compression (resizes mobile photos to max 1024px for ~3x faster vision upload)
+// Image Handling & Compression (resizes mobile photos to max 800px / ~55 KB for instant vision upload)
 async function handleFiles(files) {
   const fileArray = Array.from(files).filter((f) => f.type.startsWith('image/'));
   if (!fileArray.length) return;
 
   for (const file of fileArray) {
-    const compressed = await compressImage(file, 1024, 0.78);
+    const compressed = await compressImage(file, 800, 0.76);
     uploadedImages.push(compressed);
   }
   renderImagePreviews();
 }
 
-function compressImage(file, maxDimension = 1024, quality = 0.78) {
+function compressImage(file, maxDimension = 800, quality = 0.76) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -1005,16 +1024,35 @@ document.addEventListener('paste', (e) => {
   }
 });
 
-// Sanitize description strictly so NO Markdown (** or ###) ever slips through
+// Sanitize description strictly so NO Markdown (** or ###) and NO forbidden shipping/legal boilerplate ever slips through
 function sanitizePlainTextDescription(text) {
   if (!text) return '';
-  return text
+  const notesRaw = (typeof userNotes !== 'undefined' && userNotes?.value ? userNotes.value : '').toLowerCase();
+  const userWantsShipping = /versand|abholung|paypal|überweisung/.test(notesRaw);
+
+  let cleaned = text
     .replace(/^```[a-zA-Z]*\n?/gm, '')
     .replace(/```$/gm, '')
     .replace(/\*\*(.*?)\*\*/g, '$1')
     .replace(/^#{1,6}\s+/gm, '')
-    .replace(/^\s*[\*\•]\s+/gm, '- ')
-    .trim();
+    .replace(/^\s*[\*\•]\s+/gm, '- ');
+
+  // Entferne verbotene Standard-Floskeln (Versand/Abholung/Privatverkauf/Garantie), die kleine Modelle trotz Verbot anhängen
+  const lines = cleaned.split('\n').filter((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return true;
+    // Rechtliche Disclaimer immer entfernen
+    if (/privatverkauf|sachmangelhaftung|keine garantie|keine gew[äa]hrleistung|keine r[üu]cknahme|umtausch ausgeschlossen/i.test(trimmed)) {
+      return false;
+    }
+    // Versand- & Abholfloskeln entfernen, sofern der Nutzer sie nicht selbst in die Notizen geschrieben hat
+    if (!userWantsShipping && /^(versand\b|abholung\b|versand und abholung|versand m[öo]glich|abholung vor ort|bezahlung per|zahlung per|tierfreier nichtraucherhaushalt)/i.test(trimmed)) {
+      return false;
+    }
+    return true;
+  });
+
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 // ============================================================================
@@ -1492,35 +1530,38 @@ async function runTavilySearch(query, tavilyKey, maxResults = 5) {
   }
 }
 
-// Stufe 1 + 2: Extrahiert alle optischen Fakten & Suchbegriffe (1x Vision) und führt danach die schnelle Tavily-Suche aus
+// Stufe 1 + 2: Extrahiert NUR reine optische Merkmale (OHNE Namens-Halluzination!) und sucht damit bei Tavily nach dem echten Produkt
 async function performTavilyVisualResearch({ images, notes = '', onStatusUpdate = null }) {
   const tavilyKey = getTavilyApiKey();
   if (!tavilyKey) return null;
 
   try {
     if (onStatusUpdate) {
-      onStatusUpdate('Stufe 1/3: Schnelle Bilderkennung & Suchbegriffe...');
+      onStatusUpdate('Stufe 1/3: Reine Optik-Analyse für Websuche...');
     }
-    addDiagLog('Stufe 1/3: Starte optische Merkmal-Extraktion (1x Vision-Upload)...');
+    addDiagLog('Stufe 1/3: Extrahiere reine Bild-Merkmale (ohne Namens-Raten)...');
 
-    const queryGenPrompt = `Analysiere das Foto (und ggf. die Notiz: "${notes}") ganz genau auf alle sichtbaren Details, um den EXAKTEN Produktnamen/Titel im Internet zu finden.
-Beispiele:
-- Bei einer Tonie-Hörspielfigur (Figur auf Hörspiel-Sockel): Beschreibe Figur, Haltung, Kleidung, Gegenstände (z.B. Bücherstapel, Brief, Stift) und den Sockel exakt.
-- Bei Lego, Elektronik, Kleidung oder Sammlerstücken: Lies alle sichtbaren Nummern, Logos, Etiketten, Farben, Formen und Gebrauchsspuren ab.
+    const queryGenPrompt = `Analysiere das Foto (und ggf. die Notiz: "${notes}") rein optisch, um Suchbegriffe für eine Websuche zu bilden.
 
-Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt:
+STRENGE REGEL GEGEN HALLUZINATIONEN:
+- RATE NIEMALS EINEN CHARAKTERNAMEN, SERIENNAMEN ODER HÖRSPIELTITEL (wie "Leo Lausemaus", "Sendung mit der Maus", "Benjamin Blümchen" o.ä.), wenn dieser Name NICHT buchstäblich als lesbarer Text auf dem Artikel abgedruckt ist!
+- Wenn du ein Tier siehst, nenne NUR die Tierart (z.B. "Löwe", "Elefant", "Bär") – niemals einen geratenen Eigennamen!
+- Beschreibe Gegenstände nüchtern nach ihrer Form (z.B. wenn eine Figur auf Büchern steht und etwas Flaches/Rechteckiges oder längliches hält -> "Buch Brief Stift", NICHT "Mikrofon" raten!).
+
+Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen rein optischen Feldern:
 {
-  "visualClues": "Detaillierte Beschreibung aller sichtbaren Merkmale, Farben, Aufdrucke, System/Sockel und des optischen Zustands/Gebrauchsspuren",
-  "suspectedProduct": "Deine beste Vermutung zum genauen Namen (falls bekannt)",
-  "identificationQuery": "Präzise deutsche Suchanfrage, um den exakten Namen/Titel dieser Figur oder dieses Artikels zu finden",
-  "priceAndRarityQuery": "Präzise deutsche Suchanfrage nach Gebrauchtpreis, Kleinanzeigen und Rarität/EOL-Status"
+  "systemOrBrand": "System oder Marke (z.B. 'Tonie Figur', 'Lego', 'Playmobil', 'Schleich' oder ablesbare Marke)",
+  "mainSubject": "Was stellt die Figur / das Objekt rein optisch dar? (NUR 1-3 Wörter ohne Eigennamen, z.B. 'Löwe' oder 'Ritter')",
+  "poseAndProps": "Worauf steht es und welche Gegenstände sind klar erkennbar? (Max. 5-7 Wörter, z.B. 'steht auf Stapel Bücher hält Buch Brief')",
+  "readableText": "Nur Text/Nummern, die buchstäblich auf einem Etikett/Gehäuse lesbar sind (leer lassen '', wenn kein Text sichtbar ist!)",
+  "conditionNotes": "Sichtbarer optischer Zustand / Gebrauchsspuren auf dem Foto"
 }`;
 
     const step1 = await executeUnifiedVisionRequest({
-      systemPrompt: 'Du bist ein schneller, präziser Produkt-Detektiv für Bildmerkmale. Antworte nur mit kompaktem JSON.',
+      systemPrompt: 'Du bist ein rein optischer Bild-Analyst. Du rätst NIEMALS Eigennamen oder Titel, sondern beschreibst nur, was physisch zu sehen ist, als kurzes JSON.',
       userPrompt: queryGenPrompt,
       images,
-      maxTokens: 450,
+      maxTokens: 220,
       timeoutMs: 18000,
       allowGeminiSearch: false,
       onStatusUpdate
@@ -1533,16 +1574,24 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt:
     }
     const qObj = JSON.parse(match[0]);
 
-    const visualClues = (qObj.visualClues || '').trim();
-    const suspectedProduct = (qObj.suspectedProduct || '').trim();
-    const idQuery = (qObj.identificationQuery || suspectedProduct || '').trim();
-    const priceQuery = (qObj.priceAndRarityQuery || `${idQuery} gebraucht Preis Kleinanzeigen Rarität`).trim();
+    const sys = (qObj.systemOrBrand || '').trim();
+    const subj = (qObj.mainSubject || '').trim();
+    const props = (qObj.poseAndProps || '').trim();
+    const readTxt = (qObj.readableText || '').trim();
+    const cond = (qObj.conditionNotes || '').trim();
+
+    // Baue saubere, halluzinationsfreie Suchanfragen aus den rein visuellen Bausteinen
+    const idQuery = [sys, subj, props, readTxt, notes].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    const shortProps = props.split(/\s+/).slice(0, 3).join(' ');
+    const priceQuery = [sys, subj, shortProps, readTxt, 'gebraucht Preis Kleinanzeigen Rarität'].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+
     if (!idQuery) return null;
 
-    addDiagLog(`Erkannte Bild-Details: "${(suspectedProduct || visualClues).slice(0, 75)}"`, 'info');
+    addDiagLog(`Optik erkannt: System="${sys}", Motiv="${subj}", Details="${props}"`, 'info');
+    addDiagLog(`Tavily Query 1: "${idQuery}"`, 'info');
 
     if (onStatusUpdate) {
-      onStatusUpdate(`Stufe 2/3: Tavily Schnell-Suche nach "${idQuery.slice(0, 42)}..."`);
+      onStatusUpdate(`Stufe 2/3: Tavily Schnell-Suche nach "${idQuery.slice(0, 44)}..."`);
     }
 
     const [idSearch, priceSearch] = await Promise.all([
@@ -1560,18 +1609,24 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt:
       }
     }
 
+    if (uniqueResults.length > 0) {
+      const topTitles = uniqueResults.slice(0, 3).map((r) => `"${(r.title || '').slice(0, 55)}"`).join(' | ');
+      addDiagLog(`Tavily Top-Treffer: ${topTitles}`, 'success');
+    }
+
     const snippets = uniqueResults
       .slice(0, 6)
       .map((r, idx) => `[Quelle ${idx + 1}] Titel: ${r.title}\nURL: ${r.url}\nInhalt: ${(r.content || '').slice(0, 380)}`)
       .join('\n\n');
 
+    const visualSummary = `System/Marke: ${sys} | Hauptmotiv: ${subj} | Pose & Merkmale: ${props}${readTxt ? ` | Ablesbarer Text: ${readTxt}` : ''}${cond ? ` | Optischer Zustand: ${cond}` : ''}`;
+
     const contextText = `
-=== EXTRAHIERTE BILD-MERKMALE & ZUSTAND (AUS FOTO-ANALYSE) ===
-Sichtbare Details & Zustand auf den Fotos: ${visualClues}
-Erste Modell-Vermutung: ${suspectedProduct}
+=== OPTISCHE BILD-ANALYSE DES FOTOS ===
+${visualSummary}
 
 === ECHTE LIVE-WEBRECHERCHE (TAVILY SEARCH ERGEBNISSE) ===
-Suchanfrage 1 (Produkt-Identifikation): "${idQuery}"
+Suchanfrage 1 (Optische Produkt-Suche): "${idQuery}"
 Tavily Kurzantwort 1: ${idSearch.answer || 'Siehe Quellen'}
 
 Suchanfrage 2 (Marktpreis & Raritäten-Check): "${priceQuery}"
@@ -1580,11 +1635,12 @@ Tavily Kurzantwort 2: ${priceSearch.answer || 'Siehe Quellen'}
 Gefundene Web-Quellen & Produktdetails:
 ${snippets}
 
-WICHTIGE ANWEISUNG FÜR DIE TEXTERSTELLUNG:
-Nutze diese echten Web-Treffer zwingend!
-- Nenne den EXAKTEN offiziellen Produktnamen / Hörspiel-Titel / Modellnamen aus den Web-Quellen (keine vage Beschreibung wie "eine Löwen-Figur"!).
-- Füge echte Produktdetails aus den Quellen in die Beschreibung ein (z.B. bei Tonies/Medien: worum es geht, Laufzeit/Altersempfehlung oder besondere Merkmale; bei Technik: echte technische Daten).
-- Übernimm den echten Raritäten-/EOL-Status und realistische Sammler-/Marktpreise aus den Quellen!
+STRENGE ANWEISUNG FÜR DEN ABGLEICH VON FOTO & WEB-QUELLEN:
+1. Vergleiche das Foto direkt mit den oben gelieferten Tavily-Web-Quellen!
+2. Bestimme aus den Web-Quellen genau denjenigen offiziellen Produktnamen / Hörspiel-Titel, dessen optische Beschreibung zum Foto passt!
+   - Beispiel: Wenn auf dem Foto ein Löwe auf einem Stapel Bücher steht und ein Buch/Brief hält, dann wähle aus den Web-Quellen den Löwen-Tonie ("Die Geschichte vom Löwen, der nicht schreiben konnte" / "Der Löwe, der nicht schreiben konnte") – und erfinde NIEMALS eine Maus wie "Leo Lausemaus"!
+3. Nenne in Titel und Beschreibung den EXAKTEN offiziellen Produktnamen aus den Web-Treffern und ergänze echte Details aus den Quellen (z.B. worum es bei dem Hörspiel/Artikel geht).
+4. Übernimm den echten Raritäten-/EOL-Status und realistische Gebrauchtpreise aus den Quellen.
 =========================================================`;
 
     const groundingMetadata = {
@@ -1597,7 +1653,7 @@ Nutze diese echten Web-Treffer zwingend!
       contextText,
       groundingMetadata,
       idQuery,
-      visualClues,
+      visualClues: visualSummary,
       step1Model: step1.usedModel
     };
   } catch (err) {
@@ -1629,7 +1685,8 @@ btnGenerate.addEventListener('click', async () => {
 
   try {
     const totalKb = uploadedImages.reduce((acc, i) => acc + (i.sizeKb || Math.round((i.base64.length * 3) / 4 / 1024)), 0);
-    addDiagLog(`Start: ${uploadedImages.length} Foto(s) (${totalKb} KB komprimiert), Plattform: ${PLATFORM_META[currentPlatform].name}`);
+    const hasTavilyKey = Boolean(getTavilyApiKey());
+    addDiagLog(`Start: ${uploadedImages.length} Foto(s) (${totalKb} KB), Plattform: ${PLATFORM_META[currentPlatform].name}, Tavily-Key: ${hasTavilyKey ? 'aktiv ✓' : 'NICHT hinterlegt!'}`);
 
     const systemPrompt = getSystemPrompt(currentPlatform);
     const useSearch = toggleGoogleSearch.checked;
@@ -1637,7 +1694,7 @@ btnGenerate.addEventListener('click', async () => {
 
     // Falls Tavily API-Key vorhanden und Web-Recherche aktiv: 2-Stufen Live-Recherche ausführen!
     let tavilyData = null;
-    if (useSearch && getTavilyApiKey()) {
+    if (useSearch && hasTavilyKey) {
       tavilyData = await performTavilyVisualResearch({
         images: uploadedImages,
         notes,
@@ -1645,82 +1702,57 @@ btnGenerate.addEventListener('click', async () => {
           if (loadingSubtext) loadingSubtext.textContent = msg;
         }
       });
-    } else if (useSearch && !getTavilyApiKey()) {
-      addDiagLog('Hinweis: Kein Tavily-Key hinterlegt – nutze direkte KI-Analyse', 'info');
+    } else if (useSearch && !hasTavilyKey) {
+      addDiagLog('WARNUNG: Kein Tavily API-Key im Admin-Menü (⚙️) gespeichert! Ohne Tavily rät das Modell ohne Websuche.', 'warn');
     }
 
     const outputFormatInstructions = `
 SCHRITT-FÜR-SCHRITT BILD- & FAKTENANALYSE VOR DER ANTWORT:
-1. Verbinde die sichtbaren Bildmerkmale mit den oben gelieferten LIVE-WEBRECHERCHE-Ergebnissen (falls vorhanden).
-2. Schreibe KEINE generischen Platzhalter-Texte ("Verkaufe eine Figur in Form eines Löwen"), sondern nenne das exakte Produkt beim Namen (z.B. Tonies Hörspielfigur "Der Löwe, der nicht schreiben konnte") inklusive konkreter Details zum Produkt/Inhalt und Zustand!
-3. Prüfe den Raritäten- & EOL-Status anhand der Web-Treffer.
+1. Schau dir das Foto genau an und gleiche es mit den oben gelieferten LIVE-WEBRECHERCHE-Ergebnissen ab.
+2. Wähle den EXAKTEN offiziellen Produktnamen aus den Web-Quellen, der optisch zum Foto passt (z.B. bei einem Löwen auf einem Bücherstapel: Tonies Hörfigur "Die Geschichte vom Löwen, der nicht schreiben konnte" / "Der Löwe, der nicht schreiben konnte"). Erfinde NIEMALS Figuren, die optisch gar nicht zum Tier/Objekt auf dem Foto passen (ein Löwe ist KEINE Maus wie Leo Lausemaus!).
+3. Schreibe eine spezifische, verkaufsstarke Beschreibung mit echten Details zum Produkt/Inhalt und Zustand.
+4. VERBOTEN IN DER BESCHREIBUNG: Schreibe KEINE Sätze wie "Versand möglich oder Abholung vor Ort", KEINE Bezahlfloskeln und KEINEN Privatverkauf-Disclaimer!
 
 WICHTIG FÜR DIE AUSGABE-STRUKTUR:
 Antworte ausschließlich als valides JSON-Objekt (ohne umschließenden Markdown-Text außerhalb des JSON) mit exakt diesen Feldern:
 {
-  "visualReasoning": "Kurze visuelle Begründung + Abgleich mit Web-Quellen",
+  "visualReasoning": "Kurze visuelle Begründung + Abgleich mit den gefundenen Web-Quellen",
   "identificationConfidence": "hoch" | "mittel" | "niedrig",
-  "identifiedItem": "Exakter offizieller Produktname",
+  "identifiedItem": "Exakter offizieller Produktname aus den Web-Quellen",
   "priceAndRarityAnalysis": "Ausführliche Preis- & Markteinschätzung inkl. Raritäten-Check, EOL-Prüfung, Einzelpreisen und Setpreis (falls mehrere Artikel).",
   "hasRarityWarning": true/false (true, wenn ein seltenes Sammlerstück / EOL erkannt wurde oder separat verkauft werden sollte),
   "title": "Optimierter, treffender Verkaufstitel mit exaktem Modell/Titel",
-  "description": "Die sofort kopierfertige, verkaufsstarke und spezifische Beschreibung. STRIKT REINER TEXT OHNE MARKDOWN (keine **, keine ###, Aufzählungen nur mit -, Zwischenüberschriften mit Doppelpunkt, keine Versand-/Bezahlfloskeln, kein Disclaimer).",
+  "description": "Die sofort kopierfertige, spezifische Beschreibung. STRIKT REINER TEXT OHNE MARKDOWN (keine **, keine ###, Aufzählungen nur mit -, Zwischenüberschriften mit Doppelpunkt, ABSOLUT KEINE Versand-/Abholfloskeln, kein Disclaimer).",
   "attributes": {
-    "Empfohlener Preis": "z.B. 28 € VB",
-    "Zustand": "z.B. Sehr gut / Gepflegt",
+    "Empfohlener Preis": "z.B. 14 € VB",
+    "Zustand": "z.B. Guter gebrauchter Zustand",
     "Kategorie / Marke": "Hersteller & Serie"
   }
 }`;
 
     const baseUserRequest = notes
       ? `Zusätzliche Angaben vom Verkäufer: "${notes}"\n\nBitte führe jetzt die Identifikation, den Raritäten-/Preis-Check und die Texterstellung für die Plattform ${PLATFORM_META[currentPlatform].name} durch.`
-      : `Bitte identifiziere alle Artikel exakt, führe den strengen Raritäten- & Preis-Check durch und erstelle den Verkaufstext für ${PLATFORM_META[currentPlatform].name}.`;
+      : `Bitte identifiziere alle Artikel auf den Fotos anhand der Web-Quellen exakt, führe den strengen Raritäten- & Preis-Check durch und erstelle den Verkaufstext für ${PLATFORM_META[currentPlatform].name}.`;
 
     const fullUserPrompt = tavilyData
       ? `${baseUserRequest}\n\n${tavilyData.contextText}\n\n${outputFormatInstructions}`
       : `${baseUserRequest}\n\n${outputFormatInstructions}`;
 
-    // TURBO-OPTIMIERUNG: Wenn Stufe 1 das Bild bereits analysiert hat (`tavilyData.visualClues`),
-    // senden wir in Stufe 3 KEIN zweites Mal die großen Base64-Bilder mit (`images: []`), sondern nutzen den 4x schnelleren Text-Synthese-Modus!
-    let aiResponse;
-    if (tavilyData && tavilyData.visualClues) {
-      addDiagLog('Stufe 3/3: Erstelle Verkaufstext im Turbo-Text-Modus (kein doppelter Bild-Upload nötig)...');
-      try {
-        aiResponse = await executeUnifiedVisionRequest({
-          systemPrompt,
-          userPrompt: fullUserPrompt,
-          images: [],
-          maxTokens: 1300,
-          timeoutMs: 20000,
-          allowGeminiSearch: false,
-          onStatusUpdate: (msg) => {
-            if (loadingSubtext) loadingSubtext.textContent = `Stufe 3/3: Erstelle Verkaufstext (${msg})...`;
-          }
-        });
-      } catch (_) {
-        addDiagLog('Turbo-Text-Modus Fallback auf Vision-Call...', 'warn');
-        aiResponse = await executeUnifiedVisionRequest({
-          systemPrompt,
-          userPrompt: fullUserPrompt,
-          images: uploadedImages,
-          maxTokens: 1300,
-          timeoutMs: 24000,
-          allowGeminiSearch: false
-        });
-      }
-    } else {
-      aiResponse = await executeUnifiedVisionRequest({
-        systemPrompt,
-        userPrompt: fullUserPrompt,
-        images: uploadedImages,
-        maxTokens: 1400,
-        timeoutMs: 24000,
-        allowGeminiSearch: useSearch && !tavilyData,
-        onStatusUpdate: (msg) => {
-          if (loadingSubtext) loadingSubtext.textContent = msg;
+    // Stufe 3 bekommt das schlanke 800px-Foto (~55 KB) + die Tavily-Ergebnisse, damit das Vision-Modell Foto & Web-Treffer visuell abgleichen kann!
+    addDiagLog('Stufe 3/3: Visueller Abgleich von Foto + Web-Quellen & Texterstellung...');
+    const aiResponse = await executeUnifiedVisionRequest({
+      systemPrompt,
+      userPrompt: fullUserPrompt,
+      images: uploadedImages,
+      maxTokens: 1300,
+      timeoutMs: 24000,
+      allowGeminiSearch: useSearch && !tavilyData,
+      onStatusUpdate: (msg) => {
+        if (loadingSubtext) {
+          loadingSubtext.textContent = tavilyData ? `Stufe 3/3: Erstelle Verkaufstext (${msg})...` : msg;
         }
-      });
-    }
+      }
+    });
 
     const parsed = parseModelResponse(aiResponse.rawText);
     const finalGrounding = tavilyData?.groundingMetadata || aiResponse.groundingMetadata;
@@ -2322,7 +2354,7 @@ Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit diesen Feldern:
   const aiRes = await executeUnifiedVisionRequest({
     systemPrompt,
     userPrompt: batchPrompt,
-    images: tavilyData && tavilyData.visualClues ? [] : [imgObj],
+    images: [imgObj],
     maxTokens: 1300,
     timeoutMs: 22000,
     allowGeminiSearch: false
