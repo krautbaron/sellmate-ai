@@ -1,0 +1,21 @@
+# Temporäre Build- und Testdateien
+deploy/
+__test.html
+__test.js
+
+# Lokale Geheimnisse / Umgebungsvariablen (falls später genutzt)
+.env
+.env.local
+*.key
+
+# Editor- & Betriebssystem-Dateien
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Node / Tooling (falls später ergänzt)
+node_modules/
+dist/
+*.log
