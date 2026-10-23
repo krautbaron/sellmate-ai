@@ -137,9 +137,10 @@ const groundingLinks = document.getElementById('groundingLinks');
 const btnCopyTitle = document.getElementById('btnCopyTitle');
 const btnCopyDescription = document.getElementById('btnCopyDescription');
 
-// Modals & Provider Configuration
+// Modals & Admin Panel Configuration
 const settingsModal = document.getElementById('settingsModal');
-const btnSettings = document.getElementById('btnSettings');
+const btnAdminPanel = document.getElementById('btnAdminPanel');
+const btnUnlockOrStatus = document.getElementById('btnUnlockOrStatus');
 const btnCloseSettings = document.getElementById('btnCloseSettings');
 const btnSaveSettings = document.getElementById('btnSaveSettings');
 const providerSelect = document.getElementById('providerSelect');
@@ -156,6 +157,9 @@ const modelStatusHint = document.getElementById('modelStatusHint');
 const toggleProviderFallback = document.getElementById('toggleProviderFallback');
 const apiKeyStatusDot = document.getElementById('apiKeyStatusDot');
 const activeProviderHeaderLabel = document.getElementById('activeProviderHeaderLabel');
+
+// Optionaler verschlüsselter Tresor-String (AES-256-GCM). Wenn befüllt, fragt das Handy beim Start nur nach der kurzen PIN!
+const DEFAULT_ENCRYPTED_VAULT = '';
 
 const PROVIDERS = {
   neuralwatt: {
@@ -227,17 +231,34 @@ const PROVIDERS = {
   }
 };
 
-const promptModal = document.getElementById('promptModal');
-const btnPromptEditor = document.getElementById('btnPromptEditor');
-const btnClosePromptModal = document.getElementById('btnClosePromptModal');
-const promptModalPlatformName = document.getElementById('promptModalPlatformName');
+const adminPromptPlatformSelect = document.getElementById('adminPromptPlatformSelect');
 const systemPromptTextarea = document.getElementById('systemPromptTextarea');
 const btnResetPrompt = document.getElementById('btnResetPrompt');
 const btnSavePrompt = document.getElementById('btnSavePrompt');
 
-// Initialize Icons & Settings
+// Admin Sub-Tabs & Sync Elements
+const adminTabProviders = document.getElementById('adminTabProviders');
+const adminTabSync = document.getElementById('adminTabSync');
+const adminTabPrompts = document.getElementById('adminTabPrompts');
+const btnGenerateSyncQr = document.getElementById('btnGenerateSyncQr');
+const btnCopyMagicLink = document.getElementById('btnCopyMagicLink');
+const syncQrImage = document.getElementById('syncQrImage');
+const syncQrPlaceholder = document.getElementById('syncQrPlaceholder');
+const vaultPinCreateInput = document.getElementById('vaultPinCreateInput');
+const btnCreateVaultBlob = document.getElementById('btnCreateVaultBlob');
+const vaultOutputBox = document.getElementById('vaultOutputBox');
+const vaultBlobTextarea = document.getElementById('vaultBlobTextarea');
+
+const pinUnlockModal = document.getElementById('pinUnlockModal');
+const pinUnlockInput = document.getElementById('pinUnlockInput');
+const pinUnlockError = document.getElementById('pinUnlockError');
+const btnCancelPinUnlock = document.getElementById('btnCancelPinUnlock');
+const btnSubmitPinUnlock = document.getElementById('btnSubmitPinUnlock');
+
+// Initialize Icons, Magic-Link Sync & Settings
 document.addEventListener('DOMContentLoaded', () => {
   lucide.createIcons();
+  checkAndImportUrlHashSync();
   loadSettings();
   registerServiceWorker();
 });
@@ -496,7 +517,7 @@ function updateApiKeyIndicator() {
   const hasKey = Boolean(getProviderApiKey(activeProv));
   const meta = PROVIDERS[activeProv] || PROVIDERS.neuralwatt;
   if (activeProviderHeaderLabel) {
-    activeProviderHeaderLabel.textContent = `${meta.name}`;
+    activeProviderHeaderLabel.textContent = hasKey ? `${meta.name} aktiv` : 'Key fehlt (Admin)';
   }
   if (hasKey) {
     apiKeyStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
@@ -505,14 +526,61 @@ function updateApiKeyIndicator() {
   }
 }
 
-btnSettings.addEventListener('click', () => {
+function getVaultString() {
+  return (localStorage.getItem('sellmate_encrypted_vault') || DEFAULT_ENCRYPTED_VAULT || '').trim();
+}
+
+function openAdminModal(initialTab = 'providers') {
   const activeProv = getActiveProvider();
   syncSettingsModalForProvider(activeProv);
   if (toggleProviderFallback) {
     toggleProviderFallback.checked = isFallbackEnabled();
   }
+  if (adminPromptPlatformSelect && systemPromptTextarea) {
+    adminPromptPlatformSelect.value = currentPlatform;
+    systemPromptTextarea.value = getSystemPrompt(currentPlatform);
+  }
+  switchAdminTab(initialTab);
   settingsModal.classList.remove('hidden');
+}
+
+function switchAdminTab(tabName) {
+  const map = {
+    providers: adminTabProviders,
+    sync: adminTabSync,
+    prompts: adminTabPrompts
+  };
+  Object.entries(map).forEach(([k, el]) => {
+    if (!el) return;
+    if (k === tabName) el.classList.remove('hidden');
+    else el.classList.add('hidden');
+  });
+  document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
+    const isAct = btn.dataset.admintab === tabName;
+    btn.className = isAct
+      ? 'admin-tab-btn py-2 px-2 rounded-lg bg-emerald-500 text-slate-950 font-bold transition flex items-center justify-center gap-1.5'
+      : 'admin-tab-btn py-2 px-2 rounded-lg text-slate-300 hover:text-white transition flex items-center justify-center gap-1.5';
+  });
+}
+
+document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => switchAdminTab(btn.dataset.admintab));
 });
+
+if (btnAdminPanel) {
+  btnAdminPanel.addEventListener('click', () => openAdminModal('providers'));
+}
+
+if (btnUnlockOrStatus) {
+  btnUnlockOrStatus.addEventListener('click', () => {
+    if (!getApiKey() && getVaultString() && pinUnlockModal) {
+      pinUnlockModal.classList.remove('hidden');
+      pinUnlockInput.focus();
+    } else {
+      openAdminModal('providers');
+    }
+  });
+}
 
 btnCloseSettings.addEventListener('click', () => {
   settingsModal.classList.add('hidden');
@@ -539,40 +607,255 @@ btnSaveSettings.addEventListener('click', () => {
   }
 
   updateApiKeyIndicator();
-  settingsModal.classList.add('hidden');
-  showToast(`${PROVIDERS[prov].name} als aktiver KI-Anbieter gespeichert!`);
+  showToast(`${PROVIDERS[prov].name} gespeichert!`);
 
-  // Falls noch Artikel in der Queue warten, direkt mit dem neuen Provider starten
   if (typeof runBatchAgentQueue === 'function') {
     runBatchAgentQueue();
   }
 });
 
-// Prompt Editor Modal
-btnPromptEditor.addEventListener('click', () => {
-  promptModalPlatformName.textContent = PLATFORM_META[currentPlatform].name;
-  systemPromptTextarea.value = getSystemPrompt(currentPlatform);
-  promptModal.classList.remove('hidden');
-});
+// System-Prompt Editor (im Admin-Tab 3)
+if (adminPromptPlatformSelect) {
+  adminPromptPlatformSelect.addEventListener('change', () => {
+    const p = adminPromptPlatformSelect.value;
+    systemPromptTextarea.value = getSystemPrompt(p);
+  });
+}
 
-btnClosePromptModal.addEventListener('click', () => {
-  promptModal.classList.add('hidden');
-});
+if (btnResetPrompt) {
+  btnResetPrompt.addEventListener('click', () => {
+    const p = adminPromptPlatformSelect ? adminPromptPlatformSelect.value : currentPlatform;
+    localStorage.removeItem(`sellmate_prompt_${p}`);
+    systemPromptTextarea.value = DEFAULT_PROMPTS[p];
+    showToast('Auf Standard-Prompt zurückgesetzt');
+  });
+}
 
-btnResetPrompt.addEventListener('click', () => {
-  localStorage.removeItem(`sellmate_prompt_${currentPlatform}`);
-  systemPromptTextarea.value = DEFAULT_PROMPTS[currentPlatform];
-  showToast('Auf Standard-Prompt zurückgesetzt');
-});
+if (btnSavePrompt) {
+  btnSavePrompt.addEventListener('click', () => {
+    const p = adminPromptPlatformSelect ? adminPromptPlatformSelect.value : currentPlatform;
+    const val = systemPromptTextarea.value.trim();
+    if (val) {
+      localStorage.setItem(`sellmate_prompt_${p}`, val);
+    }
+    showToast(`System-Prompt für ${PLATFORM_META[p].name} gespeichert`);
+  });
+}
 
-btnSavePrompt.addEventListener('click', () => {
-  const val = systemPromptTextarea.value.trim();
-  if (val) {
-    localStorage.setItem(`sellmate_prompt_${currentPlatform}`, val);
+// ============================================================================
+// HANDY-SYNC (QR-CODE / MAGIC-LINK & AES-256 PIN-TRESOR)
+// ============================================================================
+
+function collectConfigBundle() {
+  const bundle = {
+    activeProvider: getActiveProvider(),
+    fallback: isFallbackEnabled(),
+    keys: {},
+    models: {},
+    baseUrls: {},
+    prompts: {}
+  };
+  Object.keys(PROVIDERS).forEach((p) => {
+    const k = getProviderApiKey(p);
+    if (k) bundle.keys[p] = k;
+    const m = localStorage.getItem(`sellmate_model_${p}`);
+    if (m) bundle.models[p] = m;
+    const b = localStorage.getItem(`sellmate_baseurl_${p}`);
+    if (b) bundle.baseUrls[p] = b;
+  });
+  Object.keys(DEFAULT_PROMPTS).forEach((pl) => {
+    const pr = localStorage.getItem(`sellmate_prompt_${pl}`);
+    if (pr) bundle.prompts[pl] = pr;
+  });
+  return bundle;
+}
+
+function applyConfigBundle(bundle) {
+  if (!bundle || typeof bundle !== 'object') return;
+  if (bundle.activeProvider) localStorage.setItem('sellmate_active_provider', bundle.activeProvider);
+  if (typeof bundle.fallback === 'boolean') localStorage.setItem('sellmate_provider_fallback', String(bundle.fallback));
+  if (bundle.keys) {
+    Object.entries(bundle.keys).forEach(([p, k]) => {
+      if (k) {
+        localStorage.setItem(`sellmate_key_${p}`, k);
+        if (p === 'gemini') localStorage.setItem('sellmate_gemini_api_key', k);
+      }
+    });
   }
-  promptModal.classList.add('hidden');
-  showToast('System-Prompt gespeichert');
-});
+  if (bundle.models) {
+    Object.entries(bundle.models).forEach(([p, m]) => {
+      if (m) localStorage.setItem(`sellmate_model_${p}`, m);
+    });
+  }
+  if (bundle.baseUrls) {
+    Object.entries(bundle.baseUrls).forEach(([p, b]) => {
+      if (b) localStorage.setItem(`sellmate_baseurl_${p}`, b);
+    });
+  }
+  if (bundle.prompts) {
+    Object.entries(bundle.prompts).forEach(([pl, pr]) => {
+      if (pr) localStorage.setItem(`sellmate_prompt_${pl}`, pr);
+    });
+  }
+  updateApiKeyIndicator();
+}
+
+function buildMagicSyncUrl() {
+  // Speichere zuerst das aktuell im Formular Eingetippte, falls der Nutzer noch nicht auf "Speichern" geklickt hat
+  if (apiKeyInput && apiKeyInput.value.trim() && providerSelect) {
+    localStorage.setItem(`sellmate_key_${providerSelect.value}`, apiKeyInput.value.trim());
+    localStorage.setItem('sellmate_active_provider', providerSelect.value);
+  }
+  const bundle = collectConfigBundle();
+  const jsonStr = JSON.stringify(bundle);
+  const encoded = btoa(unescape(encodeURIComponent(jsonStr)));
+  const base = window.location.href.split('#')[0];
+  return `${base}#sync=${encoded}`;
+}
+
+function checkAndImportUrlHashSync() {
+  const hash = window.location.hash || '';
+  if (hash.startsWith('#sync=')) {
+    try {
+      const encoded = hash.slice(6);
+      const jsonStr = decodeURIComponent(escape(atob(encoded)));
+      const bundle = JSON.parse(jsonStr);
+      applyConfigBundle(bundle);
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      setTimeout(() => {
+        showToast('✓ Handy erfolgreich gekoppelt! Alle API-Keys & Einstellungen übernommen.');
+      }, 400);
+    } catch (e) {
+      showToast('Fehler beim Lesen des Sync-Links');
+    }
+  } else if (hash === '#admin') {
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    setTimeout(() => openAdminModal('providers'), 200);
+  } else {
+    // Falls kein Key auf dem Gerät ist, aber ein verschlüsselter PIN-Tresor existiert -> PIN-Abfrage öffnen
+    setTimeout(() => {
+      if (!getApiKey() && getVaultString() && pinUnlockModal) {
+        pinUnlockModal.classList.remove('hidden');
+      }
+    }, 300);
+  }
+}
+
+if (btnGenerateSyncQr) {
+  btnGenerateSyncQr.addEventListener('click', () => {
+    const syncUrl = buildMagicSyncUrl();
+    if (!getApiKey()) {
+      showToast('Bitte zuerst unter "1. KI & API-Keys" mindestens einen API-Key eintragen!');
+      return;
+    }
+    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=8&data=${encodeURIComponent(syncUrl)}`;
+    if (syncQrImage && syncQrPlaceholder) {
+      syncQrImage.src = qrApiUrl;
+      syncQrImage.classList.remove('hidden');
+      syncQrPlaceholder.classList.add('hidden');
+    }
+    showToast('QR-Code erzeugt! Einfach mit dem Handy scannen.');
+  });
+}
+
+if (btnCopyMagicLink) {
+  btnCopyMagicLink.addEventListener('click', () => {
+    const syncUrl = buildMagicSyncUrl();
+    if (!getApiKey()) {
+      showToast('Bitte zuerst unter "1. KI & API-Keys" mindestens einen API-Key eintragen!');
+      return;
+    }
+    copyToClipboard(syncUrl, 'Magic-Link kopiert! Auf dem Handy öffnen -> sofort gekoppelt.');
+  });
+}
+
+// AES-256-GCM PIN-Tresor Verschlüsselung & Entschlüsselung (Web Crypto API)
+async function deriveAesKeyFromPin(pin, saltBytes) {
+  const enc = new TextEncoder();
+  const baseKey = await crypto.subtle.importKey('raw', enc.encode(pin), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: saltBytes, iterations: 100000, hash: 'SHA-256' },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function encryptBundleWithPin(bundleObj, pin) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveAesKeyFromPin(pin, salt);
+  const encodedData = new TextEncoder().encode(JSON.stringify(bundleObj));
+  const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encodedData);
+
+  const combined = new Uint8Array(salt.byteLength + iv.byteLength + cipherBuf.byteLength);
+  combined.set(salt, 0);
+  combined.set(iv, salt.byteLength);
+  combined.set(new Uint8Array(cipherBuf), salt.byteLength + iv.byteLength);
+  return btoa(String.fromCharCode(...combined));
+}
+
+async function decryptBundleWithPin(vaultB64, pin) {
+  const raw = Uint8Array.from(atob(vaultB64), (c) => c.charCodeAt(0));
+  const salt = raw.slice(0, 16);
+  const iv = raw.slice(16, 28);
+  const cipher = raw.slice(28);
+  const key = await deriveAesKeyFromPin(pin, salt);
+  const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
+  return JSON.parse(new TextDecoder().decode(plainBuf));
+}
+
+if (btnCreateVaultBlob) {
+  btnCreateVaultBlob.addEventListener('click', async () => {
+    const pin = (vaultPinCreateInput?.value || '').trim();
+    if (!pin) {
+      showToast('Bitte eine PIN oder ein Passwort für den Tresor eingeben');
+      return;
+    }
+    if (apiKeyInput && apiKeyInput.value.trim() && providerSelect) {
+      localStorage.setItem(`sellmate_key_${providerSelect.value}`, apiKeyInput.value.trim());
+    }
+    if (!getApiKey()) {
+      showToast('Bitte zuerst mindestens einen API-Key speichern');
+      return;
+    }
+    const bundle = collectConfigBundle();
+    const encrypted = await encryptBundleWithPin(bundle, pin);
+    localStorage.setItem('sellmate_encrypted_vault', encrypted);
+    if (vaultBlobTextarea && vaultOutputBox) {
+      vaultBlobTextarea.value = encrypted;
+      vaultOutputBox.classList.remove('hidden');
+    }
+    copyToClipboard(encrypted, 'Verschlüsselter Tresor-Code erzeugt & kopiert!');
+  });
+}
+
+if (btnCancelPinUnlock) {
+  btnCancelPinUnlock.addEventListener('click', () => {
+    pinUnlockModal.classList.add('hidden');
+    openAdminModal('providers');
+  });
+}
+
+if (btnSubmitPinUnlock) {
+  btnSubmitPinUnlock.addEventListener('click', async () => {
+    const pin = (pinUnlockInput?.value || '').trim();
+    const vault = getVaultString();
+    if (!pin || !vault) return;
+    try {
+      const bundle = await decryptBundleWithPin(vault, pin);
+      applyConfigBundle(bundle);
+      pinUnlockModal.classList.add('hidden');
+      pinUnlockError.classList.add('hidden');
+      showToast('✓ Tresor entsperrt! Alle API-Keys aktiv.');
+      if (typeof runBatchAgentQueue === 'function') runBatchAgentQueue();
+    } catch (_) {
+      pinUnlockError.textContent = 'Falsche PIN – bitte erneut versuchen.';
+      pinUnlockError.classList.remove('hidden');
+    }
+  });
+}
 
 // Platform Selection
 platformSelector.addEventListener('click', (e) => {

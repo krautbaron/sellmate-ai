@@ -60,12 +60,15 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <button id="btnPromptEditor" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition" title="System-Prompt ansehen/bearbeiten">
-          <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
-        </button>
-        <button id="btnSettings" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 transition">
+        <!-- Status-Pille (zeigt nur ob KI bereit ist, öffnet bei fehlendem Key den PIN-Unlock oder Admin) -->
+        <button id="btnUnlockOrStatus" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-[11px] font-medium text-slate-300 transition" title="KI-Status / Tresor entsperren">
           <span id="apiKeyStatusDot" class="w-2 h-2 rounded-full bg-amber-400"></span>
-          <span id="activeProviderHeaderLabel">KI / API-Key</span>
+          <span id="activeProviderHeaderLabel">Nicht verbunden</span>
+        </button>
+        <!-- Dezenter Admin-Button -->
+        <button id="btnAdminPanel" class="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition" title="Admin-Oberfläche (API-Keys, Prompts & Handy-Sync)">
+          <i data-lucide="shield-Alert" class="w-4 h-4 hidden"></i>
+          <i data-lucide="settings" class="w-4 h-4"></i>
         </button>
       </div>
     </div>
@@ -498,135 +501,242 @@
 
   </main>
 
-  <!-- Modal: Multi-Provider API Settings (Gemini, Neuralwatt, OpenRouter, Groq, Custom) -->
-  <div id="settingsModal" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl max-h-[92vh] overflow-y-auto">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <i data-lucide="cpu" class="w-5 h-5 text-emerald-400"></i>
-          <h3 class="font-bold text-base">KI-Anbieter & Modell-Konfiguration</h3>
+  <!-- ===================================================================== -->
+  <!-- ADMIN-OBERFLÄCHE (Zentrale Verwaltung: API-Keys, Handy-Sync & Prompts) -->
+  <!-- ===================================================================== -->
+  <div id="settingsModal" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-4 sm:p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col">
+      <!-- Admin Header -->
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+            <i data-lucide="shield" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-base leading-tight">Admin-Oberfläche</h3>
+            <p class="text-[11px] text-slate-400">API-Keys, Handy-Synchronisation (QR & PIN-Tresor) und System-Prompts</p>
+          </div>
         </div>
         <button id="btnCloseSettings" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
-      <div class="space-y-3.5 text-xs text-slate-300">
-        <!-- 1. Anbieter Auswahl -->
-        <div class="space-y-1.5">
-          <label for="providerSelect" class="block font-semibold text-slate-200">1. KI-Anbieter (Provider)</label>
-          <select
-            id="providerSelect"
-            class="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
-          >
-            <option value="neuralwatt">⚡ Neuralwatt Cloud (api.neuralwatt.com – Günstige Vision-Modelle)</option>
-            <option value="gemini">✨ Google Gemini API (Google AI Studio)</option>
-            <option value="openrouter">🌐 OpenRouter.ai (Hunderte günstige & freie Vision-Modelle)</option>
-            <option value="groq">🚀 Groq Cloud (Extrem schnell & günstig)</option>
-            <option value="custom_openai">🔧 Eigener OpenAI-kompatibler Server (vLLM / Ollama / LiteLLM)</option>
-          </select>
-          <p id="providerHelperText" class="text-[11px] text-slate-400 leading-relaxed"></p>
-        </div>
-
-        <!-- Custom Base URL (nur für Custom oder falls man Neuralwatt Endpoint anpassen will) -->
-        <div id="baseUrlWrapper" class="hidden space-y-1.5">
-          <label for="baseUrlInput" class="block font-semibold text-slate-200">API Base-URL (OpenAI-kompatibel)</label>
-          <input
-            type="text"
-            id="baseUrlInput"
-            placeholder="https://api.neuralwatt.com/v1"
-            class="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
-          />
-        </div>
-
-        <!-- 2. API-Key für den gewählten Anbieter -->
-        <div class="space-y-1.5">
-          <div class="flex items-center justify-between">
-            <label for="apiKeyInput" id="apiKeyLabel" class="block font-semibold text-slate-200">API-Key</label>
-            <a id="apiKeyHelpLink" href="https://neuralwatt.com" target="_blank" rel="noopener" class="text-[11px] text-emerald-400 underline hover:text-emerald-300">
-              API-Key erstellen ↗
-            </a>
-          </div>
-          <input
-            type="password"
-            id="apiKeyInput"
-            placeholder="sk-..."
-            class="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
-          />
-        </div>
-
-        <!-- 3. Modell Auswahl -->
-        <div class="space-y-1.5">
-          <div class="flex items-center justify-between">
-            <label for="modelSelect" class="block font-semibold text-slate-200">3. Vision-Modell</label>
-            <button type="button" id="btnFetchModels" class="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 underline">
-              1-Klick: Modelle vom Anbieter laden & testen
-            </button>
-          </div>
-          <select
-            id="modelSelect"
-            class="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
-          ></select>
-          <input
-            type="text"
-            id="customModelInput"
-            placeholder="Modell-ID eingeben (z.B. qwen3.6-35b, gemma-4-31b, kimi-k2.5)"
-            class="hidden mt-2 w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
-          />
-          <p id="modelStatusHint" class="text-[11px] text-slate-400 leading-relaxed"></p>
-        </div>
-
-        <!-- 4. Auto-Fallback Option bei Rate-Limits (429) -->
-        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
-          <label class="flex items-start gap-2.5 cursor-pointer select-none">
-            <input type="checkbox" id="toggleProviderFallback" checked class="mt-0.5 rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500" />
-            <div>
-              <div class="font-semibold text-slate-200">Automatischer Anbieter-Fallback bei Rate-Limits (429)</div>
-              <div class="text-[11px] text-slate-400 leading-relaxed">
-                Wenn dein primärer Anbieter in ein Rate-Limit läuft, wechselt der Hintergrund-Agent nahtlos auf deinen zweiten gespeicherten Anbieter (z.B. Gemini ➔ Neuralwatt), ohne abzubrechen!
-              </div>
-            </div>
-          </label>
-        </div>
+      <!-- Admin Sub-Navigation Tabs -->
+      <div class="grid grid-cols-3 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
+        <button type="button" data-admintab="providers" class="admin-tab-btn py-2 px-2 rounded-lg bg-emerald-500 text-slate-950 font-bold transition flex items-center justify-center gap-1.5">
+          <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
+          <span>1. KI & API-Keys</span>
+        </button>
+        <button type="button" data-admintab="sync" class="admin-tab-btn py-2 px-2 rounded-lg text-slate-300 hover:text-white transition flex items-center justify-center gap-1.5">
+          <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
+          <span>2. Handy-Sync / PIN</span>
+        </button>
+        <button type="button" data-admintab="prompts" class="admin-tab-btn py-2 px-2 rounded-lg text-slate-300 hover:text-white transition flex items-center justify-center gap-1.5">
+          <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i>
+          <span>3. System-Prompts</span>
+        </button>
       </div>
 
-      <div class="flex justify-end gap-2 pt-2">
-        <button id="btnSaveSettings" class="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm transition">
-          Speichern & Schließen
-        </button>
+      <!-- Scrollable Tab Body -->
+      <div class="flex-1 overflow-y-auto space-y-4 pr-1">
+
+        <!-- TAB 1: KI-ANBIETER & API-KEYS -->
+        <div id="adminTabProviders" class="space-y-3.5 text-xs text-slate-300">
+          <div class="space-y-1.5">
+            <label for="providerSelect" class="block font-semibold text-slate-200">Aktiver KI-Anbieter (Provider)</label>
+            <select
+              id="providerSelect"
+              class="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
+            >
+              <option value="neuralwatt">⚡ Neuralwatt Cloud (api.neuralwatt.com – Günstige Vision-Modelle)</option>
+              <option value="gemini">✨ Google Gemini API (Google AI Studio)</option>
+              <option value="openrouter">🌐 OpenRouter.ai (Hunderte günstige & freie Vision-Modelle)</option>
+              <option value="groq">🚀 Groq Cloud (Extrem schnell & günstig)</option>
+              <option value="custom_openai">🔧 Eigener OpenAI-kompatibler Server (vLLM / Ollama / LiteLLM)</option>
+            </select>
+            <p id="providerHelperText" class="text-[11px] text-slate-400 leading-relaxed"></p>
+          </div>
+
+          <div id="baseUrlWrapper" class="hidden space-y-1.5">
+            <label for="baseUrlInput" class="block font-semibold text-slate-200">API Base-URL (OpenAI-kompatibel)</label>
+            <input
+              type="text"
+              id="baseUrlInput"
+              placeholder="https://api.neuralwatt.com/v1"
+              class="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+            />
+          </div>
+
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <label for="apiKeyInput" id="apiKeyLabel" class="block font-semibold text-slate-200">API-Key</label>
+              <a id="apiKeyHelpLink" href="https://neuralwatt.com" target="_blank" rel="noopener" class="text-[11px] text-emerald-400 underline hover:text-emerald-300">
+                API-Key erstellen ↗
+              </a>
+            </div>
+            <input
+              type="password"
+              id="apiKeyInput"
+              placeholder="sk-..."
+              class="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
+            />
+          </div>
+
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <label for="modelSelect" class="block font-semibold text-slate-200">Vision-Modell</label>
+              <button type="button" id="btnFetchModels" class="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 underline">
+                1-Klick: Modelle vom Anbieter laden & testen
+              </button>
+            </div>
+            <select
+              id="modelSelect"
+              class="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
+            ></select>
+            <input
+              type="text"
+              id="customModelInput"
+              placeholder="Modell-ID eingeben (z.B. qwen3.6-35b, gemma-4-31b, kimi-k2.5)"
+              class="hidden mt-2 w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+            />
+            <p id="modelStatusHint" class="text-[11px] text-slate-400 leading-relaxed"></p>
+          </div>
+
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
+            <label class="flex items-start gap-2.5 cursor-pointer select-none">
+              <input type="checkbox" id="toggleProviderFallback" checked class="mt-0.5 rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500" />
+              <div>
+                <div class="font-semibold text-slate-200">Automatischer Anbieter-Fallback bei Rate-Limits (429)</div>
+                <div class="text-[11px] text-slate-400 leading-relaxed">
+                  Wechselt bei Rate-Limits nahtlos auf deinen zweiten gespeicherten Anbieter (z.B. Gemini ➔ Neuralwatt).
+                </div>
+              </div>
+            </label>
+          </div>
+
+          <button id="btnSaveSettings" class="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition">
+            KI-Konfiguration speichern
+          </button>
+        </div>
+
+        <!-- TAB 2: HANDY-SYNC (QR-CODE / MAGIC-LINK & AES PIN-TRESOR) -->
+        <div id="adminTabSync" class="hidden space-y-4 text-xs text-slate-300">
+          <!-- Option A: QR-Code & Magic-Link -->
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="font-bold text-emerald-400 text-sm">Option A: 1-Scan Handy-Kopplung (QR-Code / Magic-Link)</div>
+                <p class="text-[11px] text-slate-400 mt-0.5">
+                  Scanne diesen QR-Code mit deinem Android-Handy. Dadurch werden alle hier am PC gespeicherten API-Keys & Einstellungen in 1 Sekunde auf dein Handy übertragen – ganz ohne Tippen!
+                </p>
+              </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row items-center gap-4 pt-1">
+              <div id="qrCodeWrapper" class="bg-white p-3 rounded-xl shrink-0 flex items-center justify-center w-40 h-40">
+                <img id="syncQrImage" alt="Handy-Sync QR-Code" class="w-full h-full object-contain hidden" />
+                <span id="syncQrPlaceholder" class="text-[11px] text-slate-600 text-center px-2">Klicke auf „QR-Code erzeugen“</span>
+              </div>
+              <div class="space-y-2 flex-1 w-full">
+                <button type="button" id="btnGenerateSyncQr" class="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center justify-center gap-1.5">
+                  <i data-lucide="qr-code" class="w-4 h-4"></i>
+                  <span>QR-Code & Magic-Link erzeugen</span>
+                </button>
+                <button type="button" id="btnCopyMagicLink" class="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition flex items-center justify-center gap-1.5">
+                  <i data-lucide="link" class="w-3.5 h-3.5 text-emerald-400"></i>
+                  <span>Magic-Link in Zwischenablage kopieren</span>
+                </button>
+                <p class="text-[10px] text-slate-500 leading-relaxed">
+                  Hinweis: Der Link übergibt die Keys per `#sync=...` (URL-Hash). Ein URL-Hash wird niemals an Server übertragen und sofort nach dem Öffnen auf dem Handy wieder aus der Adresszeile gelöscht.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Option B: Verschlüsselter PIN-Tresor -->
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+            <div>
+              <div class="font-bold text-teal-400 text-sm">Option B: Verschlüsselter PIN-Tresor (für festen Einbau in die App)</div>
+              <p class="text-[11px] text-slate-400 mt-0.5">
+                Verschlüssele alle deine API-Keys mit einer kurzen PIN (AES-256-GCM). Wenn dieser Tresor-Block in der App hinterlegt ist, fragt dein Handy beim ersten Start nur noch nach deiner kurzen PIN!
+              </p>
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-2">
+              <input
+                type="password"
+                id="vaultPinCreateInput"
+                placeholder="Kurze PIN oder Passwort wählen (z.B. 2580)"
+                class="flex-1 rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+              />
+              <button type="button" id="btnCreateVaultBlob" class="py-2 px-4 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs shrink-0 transition">
+                Tresor-Code erzeugen
+              </button>
+            </div>
+
+            <div id="vaultOutputBox" class="hidden space-y-1.5">
+              <label class="text-[10px] text-slate-400 font-semibold">Verschlüsselter Tresor-String (kann gefahrlos in `DEFAULT_ENCRYPTED_VAULT` in app.js eingetragen werden):</label>
+              <textarea id="vaultBlobTextarea" rows="3" readonly class="w-full font-mono text-[10px] bg-slate-900 border border-slate-800 rounded-lg p-2 text-emerald-300"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: SYSTEM-PROMPTS PRO PLATTFORM -->
+        <div id="adminTabPrompts" class="hidden space-y-3 text-xs text-slate-300">
+          <div class="flex items-center justify-between">
+            <label for="adminPromptPlatformSelect" class="font-semibold text-slate-200">Plattform-Prompt auswählen:</label>
+            <select id="adminPromptPlatformSelect" class="rounded-lg bg-slate-950 border border-slate-800 px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none">
+              <option value="kleinanzeigen">Kleinanzeigen.de</option>
+              <option value="vinted">Vinted</option>
+              <option value="willhaben">Willhaben.at</option>
+              <option value="ricardo_shpock">Ricardo / Shpock</option>
+            </select>
+          </div>
+
+          <textarea
+            id="systemPromptTextarea"
+            rows="12"
+            class="w-full font-mono text-xs leading-relaxed rounded-xl bg-slate-950 border border-slate-800 p-3 text-slate-200 focus:border-emerald-500 focus:outline-none"
+          ></textarea>
+
+          <div class="flex items-center justify-between gap-2">
+            <button id="btnResetPrompt" type="button" class="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition">
+              Auf Standard zurücksetzen
+            </button>
+            <button id="btnSavePrompt" type="button" class="py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition">
+              Prompt speichern
+            </button>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
 
-  <!-- Modal: System-Prompt Anpassen -->
-  <div id="promptModal" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-5 space-y-4 shadow-2xl max-h-[90vh] flex flex-col">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <i data-lucide="sliders-horizontal" class="w-5 h-5 text-emerald-400"></i>
-          <h3 class="font-bold text-base">System-Prompt (<span id="promptModalPlatformName">Kleinanzeigen</span>)</h3>
-        </div>
-        <button id="btnClosePromptModal" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
+  <!-- Modal: PIN-Tresor Entsperren (für schnellen Handy-Start ohne Key-Eingabe) -->
+  <div id="pinUnlockModal" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl text-center">
+      <div class="w-12 h-12 rounded-2xl bg-emerald-500/15 text-emerald-400 mx-auto flex items-center justify-center">
+        <i data-lucide="lock" class="w-6 h-6"></i>
       </div>
-
-      <p class="text-xs text-slate-400">
-        Hier siehst du den hinterlegten System-Prompt für die aktuell gewählte Plattform. Änderungen werden lokal gespeichert.
-      </p>
-
-      <textarea
-        id="systemPromptTextarea"
-        rows="14"
-        class="w-full flex-1 font-mono text-xs leading-relaxed rounded-xl bg-slate-950 border border-slate-800 p-3 text-slate-200 focus:border-emerald-500 focus:outline-none"
-      ></textarea>
-
-      <div class="flex items-center justify-between gap-2 pt-1">
-        <button id="btnResetPrompt" class="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition">
-          Auf Standard zurücksetzen
+      <div class="space-y-1">
+        <h3 class="font-bold text-base text-white">SellMate AI entsperren</h3>
+        <p class="text-xs text-slate-400">Gib deine kurze Admin-PIN ein, um deine hinterlegten API-Keys auf diesem Gerät freizuschalten.</p>
+      </div>
+      <input
+        type="password"
+        id="pinUnlockInput"
+        placeholder="PIN / Passwort..."
+        class="w-full text-center tracking-widest text-base font-bold rounded-xl bg-slate-950 border border-slate-800 px-4 py-3 text-white focus:border-emerald-500 focus:outline-none"
+      />
+      <p id="pinUnlockError" class="hidden text-xs text-rose-400"></p>
+      <div class="flex gap-2">
+        <button type="button" id="btnCancelPinUnlock" class="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300">
+          Admin öffnen
         </button>
-        <button id="btnSavePrompt" class="py-2.5 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition">
-          Prompt speichern
+        <button type="button" id="btnSubmitPinUnlock" class="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white">
+          Entsperren
         </button>
       </div>
     </div>
