@@ -1754,7 +1754,7 @@ async function runTavilySearch(query, tavilyKey, maxResults = 5) {
   const timer = setTimeout(() => controller.abort(), 7500);
   const t0 = performance.now();
   try {
-    // search_depth: 'basic' antwortet in ~0.6s statt 6-10s bei 'advanced'!
+    // search_depth: 'basic' & include_answer: false antwortet in ~0.6-1.0s statt 4-8s!
     const res = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1763,7 +1763,7 @@ async function runTavilySearch(query, tavilyKey, maxResults = 5) {
         api_key: tavilyKey,
         query,
         search_depth: 'basic',
-        include_answer: true,
+        include_answer: false,
         max_results: maxResults
       })
     });
@@ -2537,6 +2537,7 @@ const batchStagingBox = document.getElementById('batchStagingBox');
 const batchStagingGrid = document.getElementById('batchStagingGrid');
 const batchStagingCount = document.getElementById('batchStagingCount');
 const batchStagingAddCameraInput = document.getElementById('batchStagingAddCameraInput');
+const batchStagingAddGalleryInput = document.getElementById('batchStagingAddGalleryInput');
 const btnCommitStagingItem = document.getElementById('btnCommitStagingItem');
 const btnClearStaging = document.getElementById('btnClearStaging');
 const batchAddPhotoToItemInput = document.getElementById('batchAddPhotoToItemInput');
@@ -2544,7 +2545,9 @@ const batchSearchInput = document.getElementById('batchSearchInput');
 const batchStagingNoteInput = document.getElementById('batchStagingNoteInput');
 const imageLightboxModal = document.getElementById('imageLightboxModal');
 const lightboxImage = document.getElementById('lightboxImage');
+const lightboxHint = document.getElementById('lightboxHint');
 const btnCloseLightbox = document.getElementById('btnCloseLightbox');
+let isLightboxZoomed = false;
 const btnExportBatchBackup = document.getElementById('btnExportBatchBackup');
 const importBatchBackupInput = document.getElementById('importBatchBackupInput');
 const bundleActionBar = document.getElementById('bundleActionBar');
@@ -2729,6 +2732,13 @@ if (batchStagingAddCameraInput) {
   });
 }
 
+if (batchStagingAddGalleryInput) {
+  batchStagingAddGalleryInput.addEventListener('change', (e) => {
+    handleBatchCameraCapture(e.target.files, false);
+    batchStagingAddGalleryInput.value = '';
+  });
+}
+
 if (batchAddPhotoToItemInput) {
   batchAddPhotoToItemInput.addEventListener('change', async (e) => {
     const files = Array.from(e.target.files || []).filter((f) => f.type.startsWith('image/'));
@@ -2758,17 +2768,30 @@ if (batchAddPhotoToItemInput) {
 
 if (batchGalleryInput) {
   batchGalleryInput.addEventListener('change', (e) => {
-    enqueueBatchFiles(e.target.files);
+    const files = Array.from(e.target.files || []).filter((f) => f.type.startsWith('image/'));
     batchGalleryInput.value = '';
+    if (!files.length) return;
+    // Wenn 1 bis 4 Fotos gewählt werden: ins Staging-Dock legen (z.B. Gerät + Typenschild zusammen!)
+    if (files.length <= 4) {
+      handleBatchCameraCapture(files, true);
+    } else {
+      // Bei 5+ Fotos: Massen-Upload als Einzelartikel in die Queue
+      enqueueBatchFiles(files);
+    }
   });
 }
 
 if (btnClearBatchAll) {
   btnClearBatchAll.addEventListener('click', () => {
+    if (!batchItems.length) return;
+    const ok = confirm(`Möchtest du wirklich alle ${batchItems.length} Artikel unwiderruflich aus deinem Bestand löschen?`);
+    if (!ok) return;
     batchItems = [];
+    selectedBatchItemIds.clear();
+    updateBundleActionBar();
     saveBatchToStorage();
     renderBatchDashboard();
-    showToast('Dashboard geleert');
+    showToast('Bestand geleert');
   });
 }
 
@@ -2936,17 +2959,41 @@ if (batchSearchInput) {
   batchSearchInput.addEventListener('input', () => renderBatchDashboard());
 }
 
-// Vollbild-Foto-Lightbox (Ideal zum Prüfen von Typenschild-Fotos)
+// Vollbild-Foto-Lightbox mit 2x-Zoom (Ideal zum Prüfen winziger Typenschild-Beschriftungen)
 function openImageLightbox(src) {
   if (!imageLightboxModal || !lightboxImage || !src) return;
+  isLightboxZoomed = false;
   lightboxImage.src = src;
+  lightboxImage.style.transform = 'scale(1)';
+  lightboxImage.className = 'max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl border border-white/10 cursor-zoom-in transition-transform duration-200';
+  if (lightboxHint) lightboxHint.textContent = '🔍 Bild antippen für 2x Zoom (Typenschild & Seriennummer)';
   imageLightboxModal.classList.remove('hidden');
 }
 
 function closeImageLightbox() {
   if (!imageLightboxModal) return;
+  isLightboxZoomed = false;
   imageLightboxModal.classList.add('hidden');
-  if (lightboxImage) lightboxImage.src = '';
+  if (lightboxImage) {
+    lightboxImage.src = '';
+    lightboxImage.style.transform = 'scale(1)';
+  }
+}
+
+if (lightboxImage) {
+  lightboxImage.addEventListener('click', (e) => {
+    e.stopPropagation();
+    isLightboxZoomed = !isLightboxZoomed;
+    if (isLightboxZoomed) {
+      lightboxImage.style.transform = 'scale(2.2)';
+      lightboxImage.className = 'max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl border border-white/10 cursor-zoom-out transition-transform duration-200';
+      if (lightboxHint) lightboxHint.textContent = '🔍 Nochmals tippen zum Verkleinern';
+    } else {
+      lightboxImage.style.transform = 'scale(1)';
+      lightboxImage.className = 'max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl border border-white/10 cursor-zoom-in transition-transform duration-200';
+      if (lightboxHint) lightboxHint.textContent = '🔍 Bild antippen für 2x Zoom (Typenschild & Seriennummer)';
+    }
+  });
 }
 
 if (btnCloseLightbox) {
@@ -2954,7 +3001,7 @@ if (btnCloseLightbox) {
 }
 if (imageLightboxModal) {
   imageLightboxModal.addEventListener('click', (e) => {
-    if (e.target === imageLightboxModal) closeImageLightbox();
+    if (e.target !== lightboxImage) closeImageLightbox();
   });
 }
 
@@ -3050,15 +3097,19 @@ async function shareOrDownloadItemImages(item) {
     // Fallback auf Download
   }
 
-  // Fallback: Einzel-Download
-  imgs.forEach((im, idx) => {
+  // Fallback: Einzel-Download (mit 250ms Pause, damit Browser-Pop-up-Blocker nicht blockieren)
+  for (let idx = 0; idx < imgs.length; idx++) {
+    const im = imgs[idx];
     const a = document.createElement('a');
     a.href = im.dataUrl;
     a.download = `sellmate_${(item.data?.itemName || 'artikel').replace(/[^a-z0-9]/gi, '_')}_${idx + 1}.jpg`;
     document.body.appendChild(a);
     a.click();
     a.remove();
-  });
+    if (idx < imgs.length - 1) {
+      await sleep(250);
+    }
+  }
   showToast(`✓ ${imgs.length} Foto(s) heruntergeladen!`);
 }
 
@@ -3143,16 +3194,117 @@ if (btnCreateBundleItem) {
       }
     };
 
+    // Quellartikel als 'im Set gebündelt' kennzeichnen, damit der Wert in der Statistik nicht doppelt gezählt wird
+    selectedItems.forEach((it) => {
+      it.isBundled = true;
+      it.bundleParentId = newBundleItem.id;
+    });
+
     batchItems.unshift(newBundleItem);
     selectedBatchItemIds.clear();
     updateBundleActionBar();
-    await saveBatchToStorage(newBundleItem);
+    await saveBatchToStorage();
     renderBatchDashboard();
     showToast(`✓ Set mit ${selectedItems.length} Artikeln erfolgreich erstellt!`);
   });
 }
 
 // 1-Klick GitHub Cloud-Sync für Handy ↔ PC
+function compressDataUrl(dataUrl, maxDim = 120, quality = 0.5) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve({ dataUrl: canvas.toDataURL('image/jpeg', quality) });
+    };
+    img.onerror = () => resolve({ dataUrl });
+    img.src = dataUrl;
+  });
+}
+
+async function getOrCreateSyncIssue(repo, pat) {
+  const listRes = await fetch(`https://api.github.com/repos/${repo}/issues?state=all&per_page=20`, {
+    headers: {
+      Authorization: `Bearer ${pat}`,
+      Accept: 'application/vnd.github.v3+json'
+    }
+  });
+  if (listRes.ok) {
+    const list = await listRes.json();
+    const found = list.find((i) => (i.title || '').includes('SellMate Cloud-Inventory Sync'));
+    if (found) return found.number;
+  }
+  const postRes = await fetch(`https://api.github.com/repos/${repo}/issues`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${pat}`,
+      Accept: 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      title: '☁️ SellMate Cloud-Inventory Sync',
+      body: 'Initialisiere SellMate Cloud-Sync...'
+    })
+  });
+  if (!postRes.ok) throw new Error(`GitHub HTTP ${postRes.status}`);
+  const created = await postRes.json();
+  return created.number;
+}
+
+async function createOptimizedSyncPayload(items) {
+  let itemsToSync = items.map((it) => ({ ...it }));
+  let payloadStr = JSON.stringify({
+    version: 'sellmate-sync-v1',
+    syncedAt: new Date().toISOString(),
+    itemCount: itemsToSync.length,
+    items: itemsToSync
+  });
+
+  // Unter 55 KB: direkt mit Original-Vorschaubildern senden
+  if (payloadStr.length <= 55000) {
+    return payloadStr;
+  }
+
+  // Falls größer als 55 KB: Bilder komprimieren (Micro-Thumbnails ~1.5 KB), damit das 65 KB GitHub Issue-Limit nie erreicht wird
+  const compactItems = [];
+  for (const it of items) {
+    const clone = { ...it };
+    const imgs = getBatchItemImages(it);
+    if (imgs.length > 0 && imgs[0]?.dataUrl) {
+      try {
+        const micro = await compressDataUrl(imgs[0].dataUrl, 120, 0.5);
+        clone.image = micro;
+        clone.images = [micro];
+      } catch (_) {
+        clone.image = null;
+        clone.images = [];
+      }
+    }
+    compactItems.push(clone);
+  }
+
+  return JSON.stringify({
+    version: 'sellmate-sync-v1',
+    syncedAt: new Date().toISOString(),
+    itemCount: compactItems.length,
+    items: compactItems
+  });
+}
+
 async function cloudPushBatchToGitHub() {
   const pat = localStorage.getItem('sellmate_diag_gh_pat');
   if (!pat) {
@@ -3170,58 +3322,29 @@ async function cloudPushBatchToGitHub() {
   if (cloudSyncStatusText) cloudSyncStatusText.textContent = '⏳ Lade Artikel-Bestand in GitHub Cloud hoch...';
 
   try {
-    const payload = {
-      version: 'sellmate-sync-v1',
-      syncedAt: new Date().toISOString(),
-      itemCount: batchItems.length,
-      items: batchItems
-    };
-    const bodyContent = `<!-- SELLMATE_INVENTORY_DATA_START -->\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\`\n<!-- SELLMATE_INVENTORY_DATA_END -->\n\n*Automatisch synchronisierter Artikel-Bestand (${batchItems.length} Artikel) via SellMate AI Cloud-Sync.*`;
+    const payloadJson = await createOptimizedSyncPayload(batchItems);
+    const bodyContent = `<!-- SELLMATE_INVENTORY_DATA_START -->\n\`\`\`json\n${payloadJson}\n\`\`\`\n<!-- SELLMATE_INVENTORY_DATA_END -->\n\n*Automatisch synchronisierter Artikel-Bestand (${batchItems.length} Artikel) via SellMate AI Cloud-Sync.*`;
 
-    // Prüfe ob Issue #2 existiert
-    const checkRes = await fetch(`https://api.github.com/repos/${repo}/issues/2`, {
+    const issueNumber = await getOrCreateSyncIssue(repo, pat);
+
+    const patchRes = await fetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}`, {
+      method: 'PATCH',
       headers: {
         Authorization: `Bearer ${pat}`,
-        Accept: 'application/vnd.github.v3+json'
-      }
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        title: '☁️ SellMate Cloud-Inventory Sync',
+        body: bodyContent
+      })
     });
-
-    if (checkRes.ok) {
-      const patchRes = await fetch(`https://api.github.com/repos/${repo}/issues/2`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${pat}`,
-          Accept: 'application/vnd.github.v3+json',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          title: '☁️ SellMate Cloud-Inventory Sync',
-          body: bodyContent
-        })
-      });
-      if (!patchRes.ok) {
-        throw new Error(`GitHub HTTP ${patchRes.status}`);
-      }
-    } else {
-      const postRes = await fetch(`https://api.github.com/repos/${repo}/issues`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${pat}`,
-          Accept: 'application/vnd.github.v3+json',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          title: '☁️ SellMate Cloud-Inventory Sync',
-          body: bodyContent
-        })
-      });
-      if (!postRes.ok) {
-        throw new Error(`GitHub HTTP ${postRes.status}`);
-      }
+    if (!patchRes.ok) {
+      throw new Error(`GitHub HTTP ${patchRes.status}`);
     }
 
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    if (cloudSyncStatusText) cloudSyncStatusText.textContent = `✓ Zuletzt hochgeladen: Heute um ${timeStr} (${batchItems.length} Artikel)`;
+    if (cloudSyncStatusText) cloudSyncStatusText.textContent = `✓ Zuletzt hochgeladen: Heute um ${timeStr} (${batchItems.length} Artikel, Issue #${issueNumber})`;
     showToast(`✓ ${batchItems.length} Artikel in die GitHub-Cloud gesichert!`);
   } catch (err) {
     if (cloudSyncStatusText) cloudSyncStatusText.textContent = `Fehler: ${err?.message || err}`;
@@ -3241,25 +3364,28 @@ async function cloudPullBatchFromGitHub() {
   if (cloudSyncStatusText) cloudSyncStatusText.textContent = '⏳ Lade Artikel-Bestand aus GitHub Cloud herunter...';
 
   try {
-    const res = await fetch(`https://api.github.com/repos/${repo}/issues/2`, {
+    const listRes = await fetch(`https://api.github.com/repos/${repo}/issues?state=all&per_page=20`, {
       headers: {
         Authorization: `Bearer ${pat}`,
         Accept: 'application/vnd.github.v3+json'
       }
     });
 
-    if (!res.ok) {
-      if (res.status === 404) {
-        throw new Error('Noch kein Cloud-Backup vorhanden. Bitte zuerst auf dem anderen Gerät „Hochladen“ tippen.');
-      }
-      throw new Error(`GitHub HTTP ${res.status}`);
+    if (!listRes.ok) {
+      throw new Error(`GitHub HTTP ${listRes.status}`);
     }
 
-    const issue = await res.json();
+    const list = await listRes.json();
+    const issue = list.find((i) => (i.title || '').includes('SellMate Cloud-Inventory Sync'));
+
+    if (!issue) {
+      throw new Error('Noch kein Cloud-Backup vorhanden. Bitte zuerst auf dem anderen Gerät „Hochladen“ tippen.');
+    }
+
     const rawBody = issue.body || '';
     const jsonMatch = rawBody.match(/```json\s*([\s\S]*?)\s*```/);
     if (!jsonMatch) {
-      throw new Error('Keine gültigen Bestandsdaten in Issue #2 gefunden.');
+      throw new Error(`Keine Bestandsdaten in Issue #${issue.number} gefunden.`);
     }
 
     const payload = JSON.parse(jsonMatch[1]);
@@ -3332,6 +3458,7 @@ function renderBatchDashboard() {
   let soldRevenue = 0;
 
   doneItems.forEach((item) => {
+    if (item.isBundled) return; // Nicht doppelt zählen, da der Wert bereits im gebündelten Set-Artikel enthalten ist!
     const d = item.data;
     sumRec += d.recommendedPrice || 0;
     sumMin += d.minPrice || d.recommendedPrice || 0;
@@ -3387,13 +3514,15 @@ function renderBatchDashboard() {
     filtered = filtered.filter((i) => i.status !== 'done' || i.data?.sellability === 'low');
   }
 
-  // Live-Textsuche
+  // Live-Textsuche (durchsucht Titel, Name, Kategorie, Beschreibung, Notizen & Verkaufslink)
   const searchQuery = (batchSearchInput?.value || '').trim().toLowerCase();
   if (searchQuery) {
     filtered = filtered.filter((i) => {
-      if (i.status !== 'done' || !i.data) return true;
+      if (i.status !== 'done' || !i.data) {
+        return (i.userNotes || '').toLowerCase().includes(searchQuery);
+      }
       const d = i.data;
-      const haystack = `${d.itemName || ''} ${d.title || ''} ${d.category || ''} ${d.description || ''}`.toLowerCase();
+      const haystack = `${d.itemName || ''} ${d.title || ''} ${d.category || ''} ${d.description || ''} ${i.userNotes || ''} ${i.listingUrl || ''}`.toLowerCase();
       return haystack.includes(searchQuery);
     });
   }
@@ -3496,6 +3625,7 @@ function renderBatchDashboard() {
 
       const isListed = Boolean(item.isListed);
       const isSold = Boolean(item.isSold);
+      const isBundled = Boolean(item.isBundled);
       const listingUrl = (item.listingUrl || '').trim();
       const isEditingLink = editingLinkForItemId === item.id;
       const isTextExpanded = expandedTextForItemId === item.id;
@@ -3507,6 +3637,10 @@ function renderBatchDashboard() {
               ? 'bg-emerald-500 text-slate-950 ring-2 ring-emerald-300'
               : 'bg-slate-800 text-slate-400 hover:text-white border border-white/10'
           } transition">${isSelectedForBundle ? '☑️ Im Set' : '☐ Set'}</button>`
+        : '';
+
+      const bundledBadgeHtml = isBundled
+        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">📦 Im Set gebündelt</span>`
         : '';
 
       const soldBadgeHtml = isSold
@@ -3673,6 +3807,7 @@ function renderBatchDashboard() {
             <div class="flex-1 min-w-0 space-y-1">
               <div class="flex flex-wrap items-center gap-1.5">
                 ${selectBtnHtml}
+                ${bundledBadgeHtml}
                 ${soldBadgeHtml}
                 ${listedBadgeHtml}
                 ${badgeHtml}
@@ -3786,11 +3921,15 @@ if (batchItemsList) {
     if (!item) return;
 
     if (action === 'delete') {
+      const name = item.data?.itemName || 'Diesen Artikel';
+      const ok = confirm(`"${name.slice(0, 45)}" wirklich aus dem Bestand löschen?`);
+      if (!ok) return;
       batchItems = batchItems.filter((i) => i.id !== id);
       selectedBatchItemIds.delete(id);
       updateBundleActionBar();
       saveBatchToStorage();
       renderBatchDashboard();
+      showToast('Artikel gelöscht');
       return;
     }
 
@@ -3997,8 +4136,13 @@ if (batchItemsList) {
       window.lastRecommendedPrice = String(d.recommendedPrice || '');
       await copyAllToAndroidClipboardHistory();
       const meta = PLATFORM_META[currentPlatform];
+      const isAndroid = /android/i.test(navigator.userAgent);
       setTimeout(() => {
-        window.open(meta.createUrl, '_blank');
+        if (isAndroid && currentPlatform === 'kleinanzeigen') {
+          window.location.href = meta.createUrl;
+        } else {
+          window.open(meta.createUrl, '_blank');
+        }
       }, 450);
     }
   });

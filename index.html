@@ -205,20 +205,26 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-2">
-          <label class="cursor-pointer py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-emerald-300 border border-emerald-500/30 font-bold text-xs flex items-center justify-center gap-1.5 transition">
-            <i data-lucide="plus" class="w-4 h-4"></i>
-            <span>2. Foto / Typenschild</span>
+        <div class="grid grid-cols-3 gap-2">
+          <label class="cursor-pointer py-2.5 px-2 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-emerald-300 border border-emerald-500/30 font-bold text-xs flex items-center justify-center gap-1 transition">
+            <i data-lucide="camera" class="w-3.5 h-3.5"></i>
+            <span>+ Kamera</span>
             <input type="file" id="batchStagingAddCameraInput" accept="image/*" capture="environment" multiple class="hidden" />
+          </label>
+
+          <label class="cursor-pointer py-2.5 px-2 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-slate-200 border border-white/10 font-bold text-xs flex items-center justify-center gap-1 transition">
+            <i data-lucide="image" class="w-3.5 h-3.5 text-emerald-400"></i>
+            <span>+ Galerie</span>
+            <input type="file" id="batchStagingAddGalleryInput" accept="image/*" multiple class="hidden" />
           </label>
 
           <button
             type="button"
             id="btnCommitStagingItem"
-            class="py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-extrabold text-xs shadow-md shadow-emerald-500/20 flex items-center justify-center gap-1.5 transition"
+            class="py-2.5 px-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-extrabold text-xs shadow-md shadow-emerald-500/20 flex items-center justify-center gap-1 transition"
           >
-            <i data-lucide="check" class="w-4 h-4 stroke-[2.5]"></i>
-            <span>Jetzt analysieren</span>
+            <i data-lucide="check" class="w-3.5 h-3.5 stroke-[2.5]"></i>
+            <span>Analysieren</span>
           </button>
         </div>
       </div>
@@ -999,11 +1005,14 @@
   </div>
 
   <!-- Vollbild Foto-Lightbox (zum genauen Prüfen von Typenschild & Details) -->
-  <div id="imageLightboxModal" class="fixed inset-0 z-50 hidden bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4">
-    <button id="btnCloseLightbox" type="button" class="absolute top-4 right-4 w-10 h-10 rounded-full bg-slate-800/90 text-white flex items-center justify-center hover:bg-slate-700">
+  <div id="imageLightboxModal" class="fixed inset-0 z-50 hidden bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-4 select-none">
+    <button id="btnCloseLightbox" type="button" class="absolute top-4 right-4 w-10 h-10 rounded-full bg-slate-800/90 text-white flex items-center justify-center hover:bg-slate-700 z-10 transition">
       ✕
     </button>
-    <img id="lightboxImage" src="" alt="Vollbild" class="max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl border border-white/10" />
+    <div class="relative overflow-auto max-w-full max-h-[85vh] flex items-center justify-center">
+      <img id="lightboxImage" src="" alt="Vollbild" class="max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl border border-white/10 cursor-zoom-in transition-transform duration-200" />
+    </div>
+    <p id="lightboxHint" class="text-[11px] text-slate-400 mt-2">🔍 Bild antippen für 2x Zoom (Typenschild & Seriennummer)</p>
   </div>
 
   <!-- Toast Notification -->
@@ -1012,6 +1021,6 @@
     <span id="toastText">Kopiert!</span>
   </div>
 
-  <script src="app.js?v=22"></script>
+  <script src="app.js?v=23"></script>
 </body>
 </html>
