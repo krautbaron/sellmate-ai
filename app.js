@@ -189,10 +189,10 @@ const PROVIDERS = {
     helpUrl: 'https://aistudio.google.com/app/apikey',
     helperText: 'Google Gemini API mit optionalem Google-Search-Preischeck. Im kostenlosen Tarif gibt es teils enge Minuten-Limits (429).',
     defaultModels: [
-      { id: 'auto', label: '✨ Automatisch (sucht freies Gemini-Modell)' },
-      { id: 'gemini-3.8-flash', label: 'gemini-3.8-flash' },
-      { id: 'gemini-2.5-flash-lite', label: 'gemini-2.5-flash-lite' },
-      { id: 'gemini-2.0-flash', label: 'gemini-2.0-flash' }
+      { id: 'auto', label: '✨ Automatisch (schnellstes freies Gemini-Modell)' },
+      { id: 'gemini-2.5-flash-lite', label: 'gemini-2.5-flash-lite (Ultra-schnell & stabil)' },
+      { id: 'gemini-flash-lite-latest', label: 'gemini-flash-lite-latest' },
+      { id: 'gemma-3-27b-it', label: 'gemma-3-27b-it (Separates Kontingent, kein 503)' }
     ]
   },
   openrouter: {
@@ -396,6 +396,24 @@ if (providerSelect) {
   });
 }
 
+// Merkt sich abgekündigte Modelle (HTTP 404), damit sie nie wieder Zeit kosten
+function getDeadGeminiModels() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem('sellmate_dead_gemini_models') || '["gemini-2.5-flash","gemini-2.0-flash-exp"]'));
+  } catch (_) {
+    return new Set(['gemini-2.5-flash', 'gemini-2.0-flash-exp']);
+  }
+}
+
+function markGeminiModelDead(modelName) {
+  const dead = getDeadGeminiModels();
+  dead.add(modelName);
+  localStorage.setItem('sellmate_dead_gemini_models', JSON.stringify([...dead]));
+  if (localStorage.getItem('sellmate_last_good_model_gemini') === modelName) {
+    localStorage.removeItem('sellmate_last_good_model_gemini');
+  }
+}
+
 // Fragt die echte Modell-Liste für Gemini ab
 async function fetchAvailableModelsForKey(apiKey) {
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
@@ -404,11 +422,14 @@ async function fetchAvailableModelsForKey(apiKey) {
     throw new Error(data?.error?.message || `Fehler beim Abrufen der Modell-Liste (${res.status})`);
   }
 
+  const deadModels = getDeadGeminiModels();
+
   const allModels = (data.models || [])
     .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
     .map((m) => m.name.replace(/^models\//, ''))
     .filter((name) => {
       const lower = name.toLowerCase();
+      if (deadModels.has(name)) return false;
       return (
         (lower.startsWith('gemini-') || lower.startsWith('gemma-')) &&
         !lower.includes('tts') &&
@@ -419,18 +440,22 @@ async function fetchAvailableModelsForKey(apiKey) {
         !lower.includes('robotics') &&
         !lower.includes('thinking') &&
         !lower.includes('1.0') &&
-        !lower.includes('1.5')
+        !lower.includes('1.5') &&
+        lower !== 'gemini-2.5-flash'
       );
     });
 
+  // Priorisiere schnelle, hochverfügbare Flash-Lite & Gemma-Vision Modelle (1-2s Antwortzeit statt 503/Timeout!)
   const scoreModel = (name) => {
     const n = name.toLowerCase();
-    if (n === 'gemini-3.8-flash' || n === 'gemini-3.0-flash' || n === 'gemini-2.5-flash') return 110;
-    if (n.includes('flash') && !n.includes('lite') && !n.includes('exp') && !n.includes('preview') && !n.includes('8b')) return 100;
-    if (n.includes('pro') && !n.includes('exp') && !n.includes('preview')) return 95;
-    if (n.includes('flash') && !n.includes('lite') && !n.includes('8b')) return 90;
-    if (n.includes('flash-lite')) return 50;
-    if (n.startsWith('gemma-3')) return 20;
+    if (n === 'gemini-2.5-flash-lite' || n === 'gemini-3.1-flash-lite-preview' || n === 'gemini-flash-lite-latest') return 120;
+    if (n.includes('flash-lite') && !n.includes('8b')) return 115;
+    if (n.startsWith('gemma-4') || n === 'gemma-3-27b-it') return 108;
+    if (n.includes('2.0-flash') && !n.includes('exp') && !n.includes('lite')) return 102;
+    if (n.includes('flash') && !n.includes('lite') && !n.includes('latest') && !n.includes('3.8') && !n.includes('8b')) return 95;
+    if (n === 'gemini-flash-latest' || n === 'gemini-3.8-flash') return 75;
+    if (n.includes('pro') && !n.includes('exp') && !n.includes('preview')) return 70;
+    if (n.startsWith('gemma-3')) return 60;
     return 40;
   };
 
@@ -1607,20 +1632,23 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = 
       }
     } else if (meta.type === 'gemini') {
       let geminiModels = [];
+      const deadSet = getDeadGeminiModels();
       const lastGoodGem = localStorage.getItem('sellmate_last_good_model_gemini');
       try {
         const real = await getGeminiModelsCached(apiKey);
-        if (chosenModel && chosenModel !== 'auto' && real.includes(chosenModel)) {
+        if (chosenModel && chosenModel !== 'auto' && real.includes(chosenModel) && !deadSet.has(chosenModel)) {
           geminiModels.push(chosenModel);
-        } else if (lastGoodGem && real.includes(lastGoodGem)) {
+        } else if (lastGoodGem && real.includes(lastGoodGem) && !deadSet.has(lastGoodGem)) {
           geminiModels.push(lastGoodGem);
         }
         real.forEach((m) => {
-          if (!geminiModels.includes(m)) geminiModels.push(m);
+          if (!geminiModels.includes(m) && !deadSet.has(m)) geminiModels.push(m);
         });
       } catch (_) {
-        geminiModels = chosenModel !== 'auto' ? [chosenModel] : ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+        geminiModels = chosenModel !== 'auto' ? [chosenModel] : ['gemini-2.5-flash-lite', 'gemini-flash-lite-latest', 'gemma-3-27b-it', 'gemini-2.0-flash'];
       }
+
+      addDiagLog(`Gemini Kandidaten: ${geminiModels.slice(0, 5).join(', ')}`);
 
       const parts = [
         ...(images || []).map((img) => ({
@@ -1629,8 +1657,12 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = 
         { text: userPrompt }
       ];
 
-      // Bei Gemini gelten Limits pro Modell – daher bis zu 3 Modelle probieren (ohne langes Warten!)
-      for (const candidateModel of geminiModels.slice(0, 3)) {
+      // Probiere bis zu 5 echte (nicht-404) Modelle
+      let realAttempts = 0;
+      for (const candidateModel of geminiModels) {
+        if (realAttempts >= 5) break;
+        if (getDeadGeminiModels().has(candidateModel)) continue;
+
         if (onStatusUpdate) {
           onStatusUpdate(`Analysiere über Gemini (${candidateModel})...`);
         }
@@ -1681,12 +1713,21 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = 
                 groundingMetadata: cand?.groundingMetadata
               };
             }
+            realAttempts++;
             noteFailure(`Gemini (${candidateModel})`, buildApiError('Leere Antwort', 200));
           } else {
+            if (resCall.status === 404) {
+              // 404 (Modell abgekündigt) dauerhaft sperren und NICHT als Fehlversuch zählen!
+              markGeminiModelDead(candidateModel);
+              addDiagLog(`Modell ${candidateModel} (404) dauerhaft übersprungen`, 'warn');
+              continue;
+            }
+            realAttempts++;
             const msg = resCall.data?.error?.message || `HTTP ${resCall.status}`;
             noteFailure(`Gemini (${candidateModel})`, buildApiError(`${resCall.status} ${msg}`, resCall.status, resCall.retryAfterSec));
           }
         } catch (err) {
+          realAttempts++;
           noteFailure(`Gemini (${candidateModel})`, err);
         }
       }
@@ -1777,7 +1818,7 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen rein optisch
       userPrompt: queryGenPrompt,
       images,
       maxTokens: 220,
-      timeoutMs: 18000,
+      timeoutMs: 11000,
       allowGeminiSearch: false,
       onStatusUpdate
     });
@@ -2468,8 +2509,8 @@ async function enqueueBatchFiles(files) {
   showToast(`${imageFiles.length} Foto(s) zur Agenten-Warteschlange hinzugefügt!`);
 
   for (const file of imageFiles) {
-    // Komprimiere auf 1024px für schnelle Hintergrund-Verarbeitung & Storage
-    const compressed = await compressImage(file, 1024, 0.78);
+    // Komprimiere auf 800px (~50 KB) für blitzschnelle Hintergrund-Verarbeitung & Storage
+    const compressed = await compressImage(file, 800, 0.76);
     batchItems.unshift({
       id: 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       createdAt: Date.now(),
@@ -2616,7 +2657,7 @@ Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit diesen Feldern:
     userPrompt: batchPrompt,
     images: [imgObj],
     maxTokens: 1300,
-    timeoutMs: 22000,
+    timeoutMs: 15000,
     allowGeminiSearch: false
   });
 
