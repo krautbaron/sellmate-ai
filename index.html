@@ -654,6 +654,37 @@
             </p>
           </div>
 
+          <!-- GitHub Live-Diagnose & Fehler-Sync (PAT) -->
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <label for="githubPatInput" class="block font-bold text-slate-200 flex items-center gap-1.5">
+                <i data-lucide="bug" class="w-3.5 h-3.5 text-emerald-400"></i>
+                <span>GitHub PAT für automatische Live-Diagnose (Handy & PC)</span>
+              </label>
+              <a href="https://github.com/settings/tokens/new?description=SellMate-AI-Diagnose&scopes=public_repo" target="_blank" rel="noopener" class="text-[11px] text-emerald-400 underline hover:text-emerald-300 shrink-0">
+                1-Klick Token erstellen ↗
+              </a>
+            </div>
+            <div class="flex gap-2">
+              <input
+                type="password"
+                id="githubPatInput"
+                placeholder="ghp_... oder github_pat_..."
+                class="flex-1 rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+              />
+              <button
+                type="button"
+                id="btnTestGithubPat"
+                class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-semibold text-xs shrink-0 transition"
+              >
+                Test-Log senden
+              </button>
+            </div>
+            <p id="githubPatStatusHint" class="text-[11px] text-slate-400 leading-relaxed">
+              Sendet Diagnose-Protokolle & Fehler beim Testen am Handy oder PC automatisch im Hintergrund an dein GitHub-Repo (<code class="text-slate-300">krautbaron/sellmate-ai</code>). Wird beim QR-Sync & PIN-Tresor automatisch aufs Handy mitübertragen!
+            </p>
+          </div>
+
           <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
             <label class="flex items-start gap-2.5 cursor-pointer select-none">
               <input type="checkbox" id="toggleProviderFallback" checked class="mt-0.5 rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500" />
@@ -843,6 +874,6 @@
     <span id="toastText">Kopiert!</span>
   </div>
 
-  <script src="app.js?v=15"></script>
+  <script src="app.js?v=16"></script>
 </body>
 </html>

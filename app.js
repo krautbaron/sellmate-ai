@@ -156,6 +156,9 @@ const btnFetchModels = document.getElementById('btnFetchModels');
 const modelStatusHint = document.getElementById('modelStatusHint');
 const toggleProviderFallback = document.getElementById('toggleProviderFallback');
 const tavilyApiKeyInput = document.getElementById('tavilyApiKeyInput');
+const githubPatInput = document.getElementById('githubPatInput');
+const btnTestGithubPat = document.getElementById('btnTestGithubPat');
+const githubPatStatusHint = document.getElementById('githubPatStatusHint');
 const apiKeyStatusDot = document.getElementById('apiKeyStatusDot');
 const activeProviderHeaderLabel = document.getElementById('activeProviderHeaderLabel');
 
@@ -316,6 +319,10 @@ function isFallbackEnabled() {
 
 function getTavilyApiKey() {
   return (localStorage.getItem('sellmate_tavily_api_key') || '').trim();
+}
+
+function getGithubPat() {
+  return (localStorage.getItem('sellmate_github_pat') || '').trim();
 }
 
 function getSystemPrompt(platform) {
@@ -568,6 +575,9 @@ function openAdminModal(initialTab = 'providers') {
   if (tavilyApiKeyInput) {
     tavilyApiKeyInput.value = getTavilyApiKey();
   }
+  if (githubPatInput) {
+    githubPatInput.value = getGithubPat();
+  }
   if (adminPromptPlatformSelect && systemPromptTextarea) {
     adminPromptPlatformSelect.value = currentPlatform;
     systemPromptTextarea.value = getSystemPrompt(currentPlatform);
@@ -626,6 +636,12 @@ if (tavilyApiKeyInput) {
   });
 }
 
+if (githubPatInput) {
+  githubPatInput.addEventListener('input', () => {
+    localStorage.setItem('sellmate_github_pat', githubPatInput.value.trim());
+  });
+}
+
 if (apiKeyInput) {
   apiKeyInput.addEventListener('input', () => {
     const prov = providerSelect ? providerSelect.value : getActiveProvider();
@@ -658,6 +674,9 @@ btnSaveSettings.addEventListener('click', () => {
   }
   if (tavilyApiKeyInput) {
     localStorage.setItem('sellmate_tavily_api_key', tavilyApiKeyInput.value.trim());
+  }
+  if (githubPatInput) {
+    localStorage.setItem('sellmate_github_pat', githubPatInput.value.trim());
   }
 
   updateApiKeyIndicator();
@@ -705,6 +724,7 @@ function collectConfigBundle() {
     activeProvider: getActiveProvider(),
     fallback: isFallbackEnabled(),
     tavilyKey: getTavilyApiKey(),
+    githubPat: getGithubPat(),
     keys: {},
     models: {},
     baseUrls: {},
@@ -730,6 +750,7 @@ function applyConfigBundle(bundle) {
   if (bundle.activeProvider) localStorage.setItem('sellmate_active_provider', bundle.activeProvider);
   if (typeof bundle.fallback === 'boolean') localStorage.setItem('sellmate_provider_fallback', String(bundle.fallback));
   if (bundle.tavilyKey) localStorage.setItem('sellmate_tavily_api_key', bundle.tavilyKey);
+  if (bundle.githubPat) localStorage.setItem('sellmate_github_pat', bundle.githubPat);
   if (bundle.keys) {
     Object.entries(bundle.keys).forEach(([p, k]) => {
       if (k) {
@@ -764,6 +785,9 @@ function buildMagicSyncUrl() {
   }
   if (tavilyApiKeyInput && tavilyApiKeyInput.value.trim()) {
     localStorage.setItem('sellmate_tavily_api_key', tavilyApiKeyInput.value.trim());
+  }
+  if (githubPatInput && githubPatInput.value.trim()) {
+    localStorage.setItem('sellmate_github_pat', githubPatInput.value.trim());
   }
   const bundle = collectConfigBundle();
   const jsonStr = JSON.stringify(bundle);
@@ -1174,6 +1198,173 @@ if (btnCopyLogs) {
     copyToClipboard(raw || 'Keine Logs vorhanden', 'Diagnose-Logs in Zwischenablage kopiert!');
   });
 }
+
+// ============================================================================
+// AUTOMATISCHE LIVE-DIAGNOSE & FEHLER-MELDUNG ÜBER GITHUB API (MIT PAT)
+// ============================================================================
+
+const GITHUB_DIAG_REPO = 'krautbaron/sellmate-ai';
+const GITHUB_DIAG_ISSUE_TITLE = '📡 SellMate Live-Diagnose & Fehler-Feed';
+
+function getDeviceShortName() {
+  const ua = navigator.userAgent || '';
+  if (/android/i.test(ua)) return '📱 Android Smartphone';
+  if (/iphone|ipad|ipod/i.test(ua)) return '📱 iPhone / iOS';
+  return '💻 Desktop / PC';
+}
+
+async function ensureGithubCollectorIssue(pat) {
+  const cachedNum = localStorage.getItem('sellmate_gh_diag_issue_num');
+  if (cachedNum) return Number(cachedNum);
+
+  const headers = {
+    Authorization: `Bearer ${pat}`,
+    Accept: 'application/vnd.github+json',
+    'Content-Type': 'application/json'
+  };
+
+  // Suche nach bestehendem Diagnose-Issue
+  const listRes = await fetch(`https://api.github.com/repos/${GITHUB_DIAG_REPO}/issues?state=open&per_page=30`, { headers });
+  if (listRes.ok) {
+    const issues = await listRes.json();
+    const found = (issues || []).find((i) => i.title === GITHUB_DIAG_ISSUE_TITLE);
+    if (found?.number) {
+      localStorage.setItem('sellmate_gh_diag_issue_num', String(found.number));
+      return found.number;
+    }
+  }
+
+  // Falls noch keins existiert -> neu anlegen
+  const createRes = await fetch(`https://api.github.com/repos/${GITHUB_DIAG_REPO}/issues`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      title: GITHUB_DIAG_ISSUE_TITLE,
+      body: 'Automatischer Live-Diagnose-Feed von **SellMate AI** (Handy & PC Tests über GitHub Pages).\nHier landen alle Analyse-Protokolle und Fehlermeldungen in Echtzeit.'
+    })
+  });
+  const created = await createRes.json().catch(() => ({}));
+  if (!createRes.ok || !created.number) {
+    throw new Error(created?.message || `GitHub API HTTP ${createRes.status}`);
+  }
+  localStorage.setItem('sellmate_gh_diag_issue_num', String(created.number));
+  return created.number;
+}
+
+async function sendGitHubTelemetryReport({ mode = 'Single-Item', status = 'OK', summary = '', logs = null }) {
+  const pat = getGithubPat();
+  if (!pat) return null;
+
+  try {
+    const logLines = (logs || diagLogEntries || [])
+      .map((x) => `[+${x.elapsed}s] [${String(x.type || 'info').toUpperCase()}] ${x.message}`)
+      .join('\n');
+
+    const totalSec = diagSessionStart ? ((performance.now() - diagSessionStart) / 1000).toFixed(1) : '-';
+    const device = getDeviceShortName();
+    const activeProv = getActiveProvider();
+    const model = getProviderModel(activeProv);
+    const hasTavily = Boolean(getTavilyApiKey());
+    const icon = status === 'ERROR' ? '🚨 FEHLER' : '✅ OK';
+
+    const commentBody = [
+      `### ${icon} • ${mode} (${device})`,
+      `- **Zeitpunkt:** \`${new Date().toISOString()}\``,
+      `- **Dauer:** \`${totalSec}s\` | **Provider:** \`${activeProv} (${model})\` | **Tavily:** \`${hasTavily ? 'aktiv' : 'aus'}\``,
+      `- **Plattform:** \`${PLATFORM_META[currentPlatform]?.name || currentPlatform}\``,
+      summary ? `- **Ergebnis / Meldung:** ${summary}` : '',
+      '',
+      '```text',
+      logLines || '(Keine Detail-Logs)',
+      '```'
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const headers = {
+      Authorization: `Bearer ${pat}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json'
+    };
+
+    let issueNum = await ensureGithubCollectorIssue(pat);
+    let commentRes = await fetch(`https://api.github.com/repos/${GITHUB_DIAG_REPO}/issues/${issueNum}/comments`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ body: commentBody })
+    });
+
+    // Falls das gecachte Issue gelöscht wurde (404), einmal neu anlegen
+    if (commentRes.status === 404) {
+      localStorage.removeItem('sellmate_gh_diag_issue_num');
+      issueNum = await ensureGithubCollectorIssue(pat);
+      commentRes = await fetch(`https://api.github.com/repos/${GITHUB_DIAG_REPO}/issues/${issueNum}/comments`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ body: commentBody })
+      });
+    }
+
+    if (!commentRes.ok) {
+      const errData = await commentRes.json().catch(() => ({}));
+      throw new Error(errData?.message || `HTTP ${commentRes.status}`);
+    }
+    return await commentRes.json();
+  } catch (err) {
+    console.warn('[SellMate GitHub-Diagnose Fehler]', err.message);
+    return null;
+  }
+}
+
+if (btnTestGithubPat) {
+  btnTestGithubPat.addEventListener('click', async () => {
+    const pat = (githubPatInput?.value || '').trim();
+    if (!pat) {
+      if (githubPatStatusHint) {
+        githubPatStatusHint.innerHTML = '<span class="text-amber-400">Bitte zuerst dein GitHub PAT (Token) in das Feld eintragen.</span>';
+      }
+      return;
+    }
+    localStorage.setItem('sellmate_github_pat', pat);
+    if (githubPatStatusHint) {
+      githubPatStatusHint.textContent = 'Sende Test-Protokoll an GitHub (krautbaron/sellmate-ai)...';
+    }
+    const res = await sendGitHubTelemetryReport({
+      mode: 'Verbindungstest',
+      status: 'OK',
+      summary: 'GitHub PAT Live-Diagnose erfolgreich verbunden!',
+      logs: [{ elapsed: '0.00', type: 'success', message: `Test-Ping von ${getDeviceShortName()} erfolgreich.` }]
+    });
+    if (res && res.html_url) {
+      if (githubPatStatusHint) {
+        githubPatStatusHint.innerHTML = `<span class="text-emerald-400 font-semibold">✓ Verbunden! Alle Handy- & PC-Tests werden jetzt live übertragen.</span>`;
+      }
+      showToast('✓ GitHub Live-Diagnose erfolgreich getestet!');
+    } else {
+      if (githubPatStatusHint) {
+        githubPatStatusHint.innerHTML = '<span class="text-rose-400">Fehler: Bitte prüfe, ob das Token Schreibrechte für "public_repo" / "Issues" hat.</span>';
+      }
+    }
+  });
+}
+
+// Fange auch unerwartete JavaScript-Laufzeitfehler global ab und melde sie an GitHub
+window.addEventListener('error', (event) => {
+  sendGitHubTelemetryReport({
+    mode: 'Global JS Error',
+    status: 'ERROR',
+    summary: `${event.message || 'Unbekannter JS-Fehler'} (${event.filename || ''}:${event.lineno || ''})`
+  });
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  const msg = event.reason?.message || String(event.reason || 'Unhandled Promise Rejection');
+  sendGitHubTelemetryReport({
+    mode: 'Unhandled Rejection',
+    status: 'ERROR',
+    summary: msg
+  });
+});
 
 // ============================================================================
 // UNIFIED MULTI-PROVIDER AI CLIENT (Neuralwatt, OpenRouter, Groq, Gemini)
@@ -1809,11 +2000,21 @@ Antworte ausschließlich als valides JSON-Objekt (ohne umschließenden Markdown-
     addDiagLog(`Fertig! Erkannt: "${parsed.title || 'Artikel'}" über ${badgeModel}`, 'success');
     finishDiagSession(badgeModel);
     renderResult(parsed, finalGrounding, badgeModel, usedWeb);
+    sendGitHubTelemetryReport({
+      mode: 'Einzel-Artikel',
+      status: 'OK',
+      summary: `Erkannt: **${parsed.title || 'Artikel'}** | Preis: \`${parsed.attributes?.['Empfohlener Preis'] || '-'}\` | Modell: \`${badgeModel}\``
+    });
   } catch (err) {
     addDiagLog(`Abbruch mit Fehler: ${err.message}`, 'error');
     finishDiagSession('Fehler');
     errorText.textContent = err.message || 'Unbekannter Fehler bei der Anfrage.';
     errorSection.classList.remove('hidden');
+    sendGitHubTelemetryReport({
+      mode: 'Einzel-Artikel',
+      status: 'ERROR',
+      summary: `Fehler: \`${err.message || 'Unbekannter Fehler'}\``
+    });
   } finally {
     loadingSection.classList.add('hidden');
     btnGenerate.disabled = false;
@@ -2322,11 +2523,17 @@ async function runBatchAgentQueue() {
 
       nextItem.status = 'analyzing';
       renderBatchDashboard();
+      startDiagSession();
 
       try {
         const analysis = await analyzeSingleBatchItemWithAgent(nextItem.image);
         nextItem.status = 'done';
         nextItem.data = analysis;
+        sendGitHubTelemetryReport({
+          mode: 'Batch-Agent',
+          status: 'OK',
+          summary: `Erkannt: **${analysis.itemName}** (${analysis.recommendedPrice} € | Score ${analysis.sellabilityScore}/10) | Modell: \`${analysis.usedModel}\``
+        });
       } catch (err) {
         nextItem.rateLimitRetries = (nextItem.rateLimitRetries || 0) + 1;
         if (err.isRateLimit && nextItem.rateLimitRetries <= 3) {
@@ -2342,6 +2549,11 @@ async function runBatchAgentQueue() {
         }
         nextItem.status = 'error';
         nextItem.errorMsg = err.message || 'Analyse fehlgeschlagen';
+        sendGitHubTelemetryReport({
+          mode: 'Batch-Agent',
+          status: 'ERROR',
+          summary: `Fehler: \`${nextItem.errorMsg}\``
+        });
       }
 
       await saveBatchToStorage(nextItem);
