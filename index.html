@@ -214,16 +214,22 @@
     <!-- Filter & Sortier-Leiste -->
     <div id="batchFilterBar" class="hidden flex flex-wrap items-center justify-between gap-2 bg-slate-900/70 border border-slate-800 rounded-xl p-2.5">
       <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-        <button type="button" data-filter="all" class="batch-filter-btn active px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+        <button type="button" data-filter="all" class="batch-filter-btn active px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
           Alle
         </button>
-        <button type="button" data-filter="high" class="batch-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700">
+        <button type="button" data-filter="open" class="batch-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 shrink-0">
+          📋 Noch offen
+        </button>
+        <button type="button" data-filter="listed" class="batch-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 shrink-0">
+          📢 Eingestellt
+        </button>
+        <button type="button" data-filter="high" class="batch-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 shrink-0">
           🔥 Gut verkäuflich
         </button>
-        <button type="button" data-filter="rarity" class="batch-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700">
+        <button type="button" data-filter="rarity" class="batch-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 shrink-0">
           💎 Raritäten
         </button>
-        <button type="button" data-filter="low" class="batch-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700">
+        <button type="button" data-filter="low" class="batch-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 shrink-0">
           🐢 Weniger gefragt
         </button>
       </div>
@@ -911,6 +917,6 @@
     <span id="toastText">Kopiert!</span>
   </div>
 
-  <script src="app.js?v=18"></script>
+  <script src="app.js?v=19"></script>
 </body>
 </html>

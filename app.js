@@ -1832,10 +1832,12 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
     const qObj = JSON.parse(match[0]);
 
     const isFig = Boolean(qObj.isFigureOnBase);
-    // Entferne halluzinierte Marken sowie irrelevante Tisch-/Hintergrund-Wörter aus den Suchbausteinen
+    // Entferne halluzinierte Marken, Seriennummern (S/N), Prüfsiegel (CE/EAC) sowie Tisch-/Hintergrund-Wörter
     const stripHallucinations = (s) =>
       String(s || '')
         .replace(/mcdonald'?s|happy\s*meal|lausemaus|sendung mit der maus|ü-ei|überraschungsei/gi, '')
+        .replace(/\b(s\/n|sn|serial)\s*:?\s*[a-z0-9\-]+/gi, '')
+        .replace(/\b(approved|ce|eac|tp\s*by|rohs|fcc|wEEE)\b/gi, '')
         .replace(/\b(liegt|steht|sitzt)?\s*auf\s*(einem|einer|dem|der)?\s*(holztisch|holzoberfläche|tisch|boden|untergrund|schreibtisch|oberfläche)\b/gi, '')
         .replace(/\s+/g, ' ')
         .trim();
@@ -2499,6 +2501,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Multi-Foto Sammel-State für den aktuellen Artikel (z.B. 1. Foto Gerät + 2. Foto Typenschild)
 let batchStagingImages = [];
 let targetBatchItemIdForPhotoAdd = null;
+let editingLinkForItemId = null;
 
 const batchStagingBox = document.getElementById('batchStagingBox');
 const batchStagingGrid = document.getElementById('batchStagingGrid');
@@ -2894,6 +2897,7 @@ function renderBatchDashboard() {
   let highCount = 0;
   let rarityCount = 0;
   let lowCount = 0;
+  let listedCount = 0;
 
   doneItems.forEach((item) => {
     const d = item.data;
@@ -2903,10 +2907,16 @@ function renderBatchDashboard() {
     if (d.sellability === 'high') highCount++;
     if (d.isRarity) rarityCount++;
     if (d.sellability === 'low') lowCount++;
+    if (item.isListed) listedCount++;
   });
 
   if (statTotalValue) statTotalValue.textContent = `${sumRec} €`;
-  if (statPriceRange) statPriceRange.textContent = `Spanne: ${sumMin} – ${sumMax} €`;
+  if (statPriceRange) {
+    statPriceRange.textContent =
+      doneItems.length > 0
+        ? `Spanne: ${sumMin}–${sumMax} € • ${listedCount}/${doneItems.length} eingestellt`
+        : `Spanne: ${sumMin} – ${sumMax} €`;
+  }
   if (statHighDemand) statHighDemand.textContent = String(highCount);
   if (statRarities) statRarities.textContent = String(rarityCount);
   if (statLowDemand) statLowDemand.textContent = String(lowCount);
@@ -2925,7 +2935,11 @@ function renderBatchDashboard() {
 
   // Filtern
   let filtered = [...batchItems];
-  if (currentBatchFilter === 'high') {
+  if (currentBatchFilter === 'open') {
+    filtered = filtered.filter((i) => !i.isListed);
+  } else if (currentBatchFilter === 'listed') {
+    filtered = filtered.filter((i) => Boolean(i.isListed));
+  } else if (currentBatchFilter === 'high') {
     filtered = filtered.filter((i) => i.status !== 'done' || i.data?.sellability === 'high');
   } else if (currentBatchFilter === 'rarity') {
     filtered = filtered.filter((i) => i.status !== 'done' || i.data?.isRarity);
@@ -3029,8 +3043,76 @@ function renderBatchDashboard() {
             `</div>`
           : '';
 
+      const isListed = Boolean(item.isListed);
+      const listingUrl = (item.listingUrl || '').trim();
+      const isEditingLink = editingLinkForItemId === item.id;
+
+      const listedBadgeHtml = isListed
+        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40">📢 Eingestellt</span>`
+        : '';
+
+      const listingLinkDisplayHtml =
+        isListed && listingUrl && !isEditingLink
+          ? `
+          <div class="bg-sky-950/30 border border-sky-500/30 rounded-xl px-3 py-2 flex items-center justify-between gap-2 text-xs">
+            <a href="${escapeHtml(listingUrl)}" target="_blank" rel="noopener" class="text-sky-300 hover:text-sky-200 font-semibold truncate flex items-center gap-1.5 underline">
+              <span>🔗 Zum Inserat öffnen ↗</span>
+              <span class="text-[10px] text-slate-400 font-normal truncate">(${escapeHtml(listingUrl)})</span>
+            </a>
+            <button type="button" data-action="edit-link" data-id="${item.id}" class="text-[11px] text-slate-400 hover:text-white shrink-0 px-1.5 py-0.5 rounded bg-slate-800">
+              Ändern
+            </button>
+          </div>`
+          : '';
+
+      const linkEditorHtml = isEditingLink
+        ? `
+          <div class="bg-slate-950 border border-sky-500/40 rounded-xl p-3 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-bold text-sky-300">📢 Inserats-Status & Verkaufslink (Kleinanzeigen / Vinted)</span>
+              <button type="button" data-action="close-link-editor" data-id="${item.id}" class="text-[11px] text-slate-400 hover:text-white">✕</button>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-2">
+              <input
+                type="url"
+                id="listingUrlInput_${item.id}"
+                value="${escapeHtml(listingUrl)}"
+                placeholder="https://www.kleinanzeigen.de/s-anzeige/..."
+                class="flex-1 rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-sky-500 focus:outline-none"
+              />
+              <div class="flex gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  data-action="paste-link"
+                  data-id="${item.id}"
+                  class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 font-semibold text-xs transition"
+                  title="Link aus der Zwischenablage einfügen & speichern"
+                >
+                  📋 Einfügen
+                </button>
+                <button
+                  type="button"
+                  data-action="save-link"
+                  data-id="${item.id}"
+                  class="px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-extrabold text-xs transition"
+                >
+                  Speichern
+                </button>
+              </div>
+            </div>
+            <div class="flex items-center justify-between pt-1 text-[11px]">
+              <span class="text-slate-400">Auch ohne Link bleibt der Artikel als „📢 Eingestellt“ markiert.</span>
+              ${
+                isListed
+                  ? `<button type="button" data-action="unmark-listed" data-id="${item.id}" class="text-rose-400 hover:text-rose-300 underline">Wieder auf „Offen“ setzen</button>`
+                  : ''
+              }
+            </div>
+          </div>`
+        : '';
+
       return `
-        <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 space-y-3 transition">
+        <div class="bg-slate-900 border ${isListed ? 'border-sky-500/40' : 'border-slate-800'} hover:border-slate-700 rounded-2xl p-4 space-y-3 transition">
           <div class="flex items-start gap-3.5">
             <div class="relative w-20 h-20 shrink-0">
               <img src="${imgs[0]?.dataUrl || ''}" class="w-20 h-20 rounded-xl object-cover border border-slate-700" />
@@ -3038,6 +3120,7 @@ function renderBatchDashboard() {
             </div>
             <div class="flex-1 min-w-0 space-y-1">
               <div class="flex flex-wrap items-center gap-1.5">
+                ${listedBadgeHtml}
                 ${badgeHtml}
                 ${rarityHtml}
                 ${confidenceHtml}
@@ -3055,6 +3138,9 @@ function renderBatchDashboard() {
             </div>
           </div>
 
+          ${listingLinkDisplayHtml}
+          ${linkEditorHtml}
+
           <!-- Direkt-Aktionen pro Karte -->
           <div class="pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
             <div class="flex flex-wrap items-center gap-1.5">
@@ -3068,12 +3154,25 @@ function renderBatchDashboard() {
               </button>
               <button
                 type="button"
+                data-action="toggle-listed"
+                data-id="${item.id}"
+                class="px-2.5 py-1.5 rounded-xl ${
+                  isListed
+                    ? 'bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                } font-semibold text-xs transition"
+                title="Als bei Kleinanzeigen eingestellt markieren & Link hinterlegen"
+              >
+                <span>${isListed ? (listingUrl ? '🔗 Link bearbeiten' : '📢 Eingestellt (+ Link)') : '✅ Eingestellt / Link'}</span>
+              </button>
+              <button
+                type="button"
                 data-action="add-photo"
                 data-id="${item.id}"
                 class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 font-semibold text-xs transition"
                 title="Weiteres Foto (z.B. Typenschild oder Rückseite) zu diesem Artikel aufnehmen und neu analysieren"
               >
-                <span>📷 + Typenschild / Foto</span>
+                <span>📷 + Typenschild</span>
               </button>
               <button
                 type="button"
@@ -3114,6 +3213,75 @@ if (batchItemsList) {
       batchItems = batchItems.filter((i) => i.id !== id);
       saveBatchToStorage();
       renderBatchDashboard();
+      return;
+    }
+
+    if (action === 'toggle-listed' || action === 'edit-link') {
+      if (!item.isListed) {
+        item.isListed = true;
+        item.listedAt = Date.now();
+        await saveBatchToStorage(item);
+        showToast('✓ Artikel als „Eingestellt“ markiert! Du kannst jetzt optional den Link speichern.');
+      }
+      editingLinkForItemId = editingLinkForItemId === item.id ? null : item.id;
+      renderBatchDashboard();
+      if (editingLinkForItemId === item.id) {
+        setTimeout(() => {
+          const inp = document.getElementById(`listingUrlInput_${item.id}`);
+          if (inp) inp.focus();
+        }, 50);
+      }
+      return;
+    }
+
+    if (action === 'close-link-editor') {
+      editingLinkForItemId = null;
+      renderBatchDashboard();
+      return;
+    }
+
+    if (action === 'save-link') {
+      const inp = document.getElementById(`listingUrlInput_${item.id}`);
+      const rawUrl = (inp?.value || '').trim();
+      item.isListed = true;
+      item.listedAt = item.listedAt || Date.now();
+      item.listingUrl = rawUrl;
+      editingLinkForItemId = null;
+      await saveBatchToStorage(item);
+      renderBatchDashboard();
+      showToast(rawUrl ? '✓ Inserats-Link gespeichert!' : '✓ Als „Eingestellt“ gespeichert!');
+      return;
+    }
+
+    if (action === 'paste-link') {
+      try {
+        const clipText = (await navigator.clipboard.readText()).trim();
+        const urlMatch = clipText.match(/https?:\/\/[^\s]+/i);
+        const finalUrl = urlMatch ? urlMatch[0] : clipText;
+        if (finalUrl) {
+          item.isListed = true;
+          item.listedAt = item.listedAt || Date.now();
+          item.listingUrl = finalUrl;
+          editingLinkForItemId = null;
+          await saveBatchToStorage(item);
+          renderBatchDashboard();
+          showToast('✓ Link aus Zwischenablage eingefügt & gespeichert!');
+        } else {
+          showToast('Zwischenablage ist leer');
+        }
+      } catch (_) {
+        showToast('Bitte Link direkt in das Textfeld einfügen (Gedrückt halten -> Einfügen)');
+      }
+      return;
+    }
+
+    if (action === 'unmark-listed') {
+      item.isListed = false;
+      item.listingUrl = '';
+      editingLinkForItemId = null;
+      await saveBatchToStorage(item);
+      renderBatchDashboard();
+      showToast('Status zurück auf „Offen“ gesetzt');
       return;
     }
 
