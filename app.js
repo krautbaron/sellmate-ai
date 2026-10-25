@@ -1800,7 +1800,8 @@ async function performTavilyVisualResearch({ images, notes = '', onStatusUpdate 
     const queryGenPrompt = `Analysiere alle ${images.length} Foto(s) dieses Artikels (z.B. Foto 1: Vorderseite/Gerät, Foto 2: Typenschild/Unterseite/Etikett; Notiz: "${notes}") rein optisch, um präzise Suchbegriffe für eine Websuche zu bilden.
 
 STRENGE REGELN:
-- TYPENSCHILD & MODELLNUMMERN ZUERST: Wenn auf einem der Fotos (insb. Rückseite/Unterseite/Typenschild) Text, Markenname, Modellnummer (Model / M/N / P/N / Type / A-Nummer / Wattzahl, z.B. "M-R0084", "MX Master 3S", "Model A2663", "65W") lesbar ist, schreibe ALLE diese ablesbaren Nummern und Markennamen exakt in "readableBrandOrText"!
+- TYPENSCHILD & MODELLNUMMERN ZUERST: Wenn auf einem der Fotos (insb. Rückseite/Unterseite/Typenschild) Markenname, Produktname oder Modell-/Teilenummer (Model / M/N / P/N / Type / A-Nummer, z.B. "Logitech MX Master 2S 810-005839", "M-R0084", "Model A2663") lesbar ist, schreibe NUR Marke + Modellname + Modell-/Teilenummer (MAXIMAL 6 Wörter!) in "readableBrandOrText"!
+- IGNORIERE MÜLL-TEXT AUF TYPENSCHILDERN: Schreibe NIEMALS "Made in China", "Rating 5.0V 300mA", "TA 2017-822", Seriennummern (S/N), Schalterzahlen ("1 2 3") oder Prüfsiegel (CE, EAC, FCC, Approved) in die Suchbegriffe!
 - KEIN HINTERGRUND / KEIN TISCH: Beschreibe NIEMALS den Untergrund oder Hintergrund (NICHT "liegt auf Holztisch", NICHT "auf Holzoberfläche", NICHT "in der Hand")!
 - RATE NIEMALS EINE MARKE WIE "McDonald's", "Happy Meal", "Disney", "Ü-Ei" ODER EINEN CHARAKTERNAMEN (wie "Leo Lausemaus", "Simba"), wenn dieser Name NICHT buchstäblich als lesbarer Text auf dem Artikel abgedruckt ist!
 - WICHTIG BEI FIGUREN: Kleine handbemalte Kunststoff-Figuren, die auf einem Sockel, Podest oder einem Stapel Bücher/Blöcken stehen, sind fast immer "Tonie Hörfiguren" (Tonies). Wenn eine Figur auf flachen rechteckigen Stapeln steht, sind das "Bücher" (Bücherstapel) und ein flacher Gegenstand in der Pfote ist ein "Buch / Brief" mit "Stift / Feder".
@@ -1808,17 +1809,17 @@ STRENGE REGELN:
 Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
 {
   "isFigureOnBase": true/false (true NUR bei einer Spielfigur/Hörfigur; false bei Elektronik, Kleidung, Werkzeug, Haushalt etc.),
-  "readableBrandOrText": "ALLE buchstäblich ablesbaren Marken, Modellnummern (M/N, P/N, Model), Leistungsdaten (z.B. 65W) und Beschriftungen von Gerät & Typenschild (leer '', wenn nichts lesbar)",
-  "mainSubject": "Was für ein Artikel / welche Tierart ist es? (1-3 Wörter ohne Eigennamen, z.B. 'Funkmaus', 'USB-C Ladegerät', 'Löwe')",
-  "poseAndProps": "Bei Figuren: Pose & Gegenstände (z.B. 'steht auf Stapel Bücher hält Buch Stift'). Bei Technik/Alltag: Bauform, Anschlüsse, Tasten, Farbe OHNE Tisch/Hintergrund (z.B. 'schwarz ergonomisch Daumenrad Seitentasten')",
+  "readableBrandOrText": "NUR Marke, Modellname & Modell-/Teilenummer vom Typenschild, MAXIMAL 6 Wörter (z.B. 'Logitech MX Master 2S 810-005839'; leer '', wenn nichts lesbar)",
+  "mainSubject": "Was für ein Artikel / welche Tierart ist es? (1-2 Wörter ohne Eigennamen, z.B. 'Funkmaus', 'USB-C Ladegerät', 'Löwe')",
+  "poseAndProps": "MAXIMAL 5 Stichwörter! Bei Figuren: Pose & Gegenstände (z.B. 'steht auf Stapel Bücher hält Buch Stift'). Bei Technik/Alltag: nur Farbe & wichtigstes Merkmal (z.B. 'schwarz ergonomisch Daumenrad')",
   "conditionNotes": "Sichtbarer optischer Zustand / Gebrauchsspuren auf den Fotos"
 }`;
 
     const step1 = await executeUnifiedVisionRequest({
-      systemPrompt: 'Du bist ein rein optischer Bild-Analyst. Du rätst NIEMALS Marken (kein McDonald\'s/Happy Meal!) oder Eigennamen, sondern beschreibst nur nüchtern die Form als JSON.',
+      systemPrompt: 'Du bist ein rein optischer Bild-Analyst. Du rätst NIEMALS Marken (kein McDonald\'s/Happy Meal!) oder Eigennamen, sondern extrahierst knappe, präzise Suchbegriffe als JSON.',
       userPrompt: queryGenPrompt,
       images,
-      maxTokens: 220,
+      maxTokens: 200,
       timeoutMs: 11000,
       allowGeminiSearch: false,
       onStatusUpdate
@@ -1832,35 +1833,62 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
     const qObj = JSON.parse(match[0]);
 
     const isFig = Boolean(qObj.isFigureOnBase);
-    // Entferne halluzinierte Marken, Seriennummern (S/N), Prüfsiegel (CE/EAC) sowie Tisch-/Hintergrund-Wörter
+    // Entferne halluzinierte Marken, Seriennummern (S/N), Prüfsiegel (CE/EAC), Spannungswerte ("Rating 5.0V 300mA"), "Made in China" sowie Tisch-/Hintergrund-Wörter
     const stripHallucinations = (s) =>
       String(s || '')
         .replace(/mcdonald'?s|happy\s*meal|lausemaus|sendung mit der maus|ü-ei|überraschungsei/gi, '')
-        .replace(/\b(s\/n|sn|serial)\s*:?\s*[a-z0-9\-]+/gi, '')
-        .replace(/\b(approved|ce|eac|tp\s*by|rohs|fcc|wEEE)\b/gi, '')
+        .replace(/\b(s\/n|sn|serial|p\/n|m\/n|model|type)\s*:?/gi, '')
+        .replace(/\b(approved|ce|eac|tp\s*by|rohs|fcc|weee|ul|tüv|gs)\b/gi, '')
+        .replace(/\bmade\s+in\s+[a-zäöüß]+/gi, '')
+        .replace(/\brating\b[\s\d\.,vmawkz\/\-+=]*/gi, '')
+        .replace(/\bta\s*\d{4}[\-\/]\d+/gi, '')
+        .replace(/\b\d+(\.\d+)?\s*(v|ma|mah|khz|mhz|ghz)\b/gi, '')
+        .replace(/\b1\s+2\s+3\b/g, '')
         .replace(/\b(liegt|steht|sitzt)?\s*auf\s*(einem|einer|dem|der)?\s*(holztisch|holzoberfläche|tisch|boden|untergrund|schreibtisch|oberfläche)\b/gi, '')
+        .replace(/[,;()]+/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
 
-    const readTxt = stripHallucinations(qObj.readableBrandOrText);
-    const subj = stripHallucinations(qObj.mainSubject);
+    const readTxt = stripHallucinations(qObj.readableBrandOrText).split(/\s+/).slice(0, 7).join(' ');
+    const subj = stripHallucinations(qObj.mainSubject).split(/\s+/).slice(0, 3).join(' ');
     // Falls das Modell bei einer Figur Bücher als "Blöcke" bezeichnet hat, ergänze "Bücher" für die Suche
-    let props = stripHallucinations(qObj.poseAndProps);
+    let props = stripHallucinations(qObj.poseAndProps).split(/\s+/).slice(0, 6).join(' ');
     if (isFig && /bl[öo]ck|stapel/i.test(props) && !/b[üu]ch/i.test(props)) {
       props = `${props} Bücher`;
     }
     const cond = (qObj.conditionNotes || '').trim();
 
-    // Baue 3 parallele, halluzinationsfreie Suchanfragen:
+    // Wenn wir bereits einen klaren Modellnamen / Teilenummer vom Typenschild haben (>= 2 Wörter),
+    // lassen wir generische Optik-Beschreibungen weg, damit Tavily in ~1s statt 6s exakte Treffer liefert!
+    const hasStrongTypeplate = readTxt.split(/\s+/).filter(Boolean).length >= 2;
+
+    // Baue 3 parallele, halluzinationsfreie Suchanfragen (kompakt & schnell):
     // 1. Reine Optik- & Typenschild-Suche (OHNE 'Figur' bei normalen Geräten!)
-    const pureVisualQuery = [isFig ? 'Figur' : '', readTxt, subj, props, notes].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    const pureVisualQuery = [
+      isFig ? 'Figur' : '',
+      readTxt,
+      subj,
+      hasStrongTypeplate && !isFig ? '' : props,
+      notes
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .slice(0, 10)
+      .join(' ');
     // 2. Gezielte Tonie-Hörfigur-Prüfung (nur falls es eine Figur ist)
     const tonieQuery = isFig || /löwe|bär|hase|drache|figur/i.test(subj)
       ? ['Tonie Hörfigur', subj, props, notes].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
       : '';
-    const shortProps = props.split(/\s+/).slice(0, 3).join(' ');
+    const shortProps = hasStrongTypeplate ? '' : props.split(/\s+/).slice(0, 2).join(' ');
     // 3. Preis- & Modell-Suche
-    const priceQuery = [isFig ? 'Tonie' : readTxt, subj, shortProps, 'gebraucht Preis Kleinanzeigen'].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    const priceQuery = [isFig ? 'Tonie' : readTxt, subj, shortProps, 'gebraucht Preis Kleinanzeigen']
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
 
     if (!pureVisualQuery) return null;
 
@@ -2502,6 +2530,7 @@ document.addEventListener('DOMContentLoaded', () => {
 let batchStagingImages = [];
 let targetBatchItemIdForPhotoAdd = null;
 let editingLinkForItemId = null;
+let expandedTextForItemId = null;
 
 const batchStagingBox = document.getElementById('batchStagingBox');
 const batchStagingGrid = document.getElementById('batchStagingGrid');
@@ -2510,6 +2539,12 @@ const batchStagingAddCameraInput = document.getElementById('batchStagingAddCamer
 const btnCommitStagingItem = document.getElementById('btnCommitStagingItem');
 const btnClearStaging = document.getElementById('btnClearStaging');
 const batchAddPhotoToItemInput = document.getElementById('batchAddPhotoToItemInput');
+const batchSearchInput = document.getElementById('batchSearchInput');
+const imageLightboxModal = document.getElementById('imageLightboxModal');
+const lightboxImage = document.getElementById('lightboxImage');
+const btnCloseLightbox = document.getElementById('btnCloseLightbox');
+const btnExportBatchBackup = document.getElementById('btnExportBatchBackup');
+const importBatchBackupInput = document.getElementById('importBatchBackupInput');
 
 function getBatchItemImages(item) {
   if (Array.isArray(item.images) && item.images.length > 0) return item.images;
@@ -2848,7 +2883,7 @@ Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit diesen Feldern:
   };
 }
 
-// Filter & Sort Events
+// Filter, Search & Sort Events
 document.querySelectorAll('.batch-filter-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     currentBatchFilter = btn.dataset.filter;
@@ -2865,6 +2900,91 @@ document.querySelectorAll('.batch-filter-btn').forEach((btn) => {
 
 if (batchSortSelect) {
   batchSortSelect.addEventListener('change', () => renderBatchDashboard());
+}
+
+if (batchSearchInput) {
+  batchSearchInput.addEventListener('input', () => renderBatchDashboard());
+}
+
+// Vollbild-Foto-Lightbox (Ideal zum Prüfen von Typenschild-Fotos)
+function openImageLightbox(src) {
+  if (!imageLightboxModal || !lightboxImage || !src) return;
+  lightboxImage.src = src;
+  imageLightboxModal.classList.remove('hidden');
+}
+
+function closeImageLightbox() {
+  if (!imageLightboxModal) return;
+  imageLightboxModal.classList.add('hidden');
+  if (lightboxImage) lightboxImage.src = '';
+}
+
+if (btnCloseLightbox) {
+  btnCloseLightbox.addEventListener('click', closeImageLightbox);
+}
+if (imageLightboxModal) {
+  imageLightboxModal.addEventListener('click', (e) => {
+    if (e.target === imageLightboxModal) closeImageLightbox();
+  });
+}
+
+// JSON-Backup Export & Import für alle Artikel
+if (btnExportBatchBackup) {
+  btnExportBatchBackup.addEventListener('click', () => {
+    if (!batchItems || batchItems.length === 0) {
+      showToast('Keine Artikel zum Exportieren vorhanden');
+      return;
+    }
+    const payload = {
+      version: 'sellmate-backup-v1',
+      exportedAt: new Date().toISOString(),
+      itemCount: batchItems.length,
+      items: batchItems
+    };
+    const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `sellmate-backup-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast(`✓ Backup mit ${batchItems.length} Artikel(n) heruntergeladen`);
+  });
+}
+
+if (importBatchBackupInput) {
+  importBatchBackupInput.addEventListener('change', async () => {
+    const file = importBatchBackupInput.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const importedItems = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.items) ? parsed.items : null;
+      if (!importedItems || importedItems.length === 0) {
+        showToast('Ungültige oder leere Backup-Datei');
+        importBatchBackupInput.value = '';
+        return;
+      }
+      const existingMap = new Map(batchItems.map((i) => [i.id, i]));
+      let addedOrUpdated = 0;
+      importedItems.forEach((it) => {
+        if (it && it.id) {
+          existingMap.set(it.id, it);
+          addedOrUpdated++;
+        }
+      });
+      batchItems = Array.from(existingMap.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      await saveBatchToStorage();
+      renderBatchDashboard();
+      showToast(`✓ ${addedOrUpdated} Artikel aus Backup wiederhergestellt!`);
+    } catch (err) {
+      showToast(`Backup-Import fehlgeschlagen: ${err?.message || err}`);
+    }
+    importBatchBackupInput.value = '';
+  });
 }
 
 function renderBatchDashboard() {
@@ -2898,6 +3018,8 @@ function renderBatchDashboard() {
   let rarityCount = 0;
   let lowCount = 0;
   let listedCount = 0;
+  let soldCount = 0;
+  let soldRevenue = 0;
 
   doneItems.forEach((item) => {
     const d = item.data;
@@ -2908,14 +3030,20 @@ function renderBatchDashboard() {
     if (d.isRarity) rarityCount++;
     if (d.sellability === 'low') lowCount++;
     if (item.isListed) listedCount++;
+    if (item.isSold) {
+      soldCount++;
+      soldRevenue += Number(item.soldPrice || d.recommendedPrice || 0);
+    }
   });
 
   if (statTotalValue) statTotalValue.textContent = `${sumRec} €`;
   if (statPriceRange) {
-    statPriceRange.textContent =
-      doneItems.length > 0
-        ? `Spanne: ${sumMin}–${sumMax} € • ${listedCount}/${doneItems.length} eingestellt`
-        : `Spanne: ${sumMin} – ${sumMax} €`;
+    if (doneItems.length > 0) {
+      const soldPart = soldCount > 0 ? ` • 💰 ${soldCount} verkauft (${soldRevenue} €)` : '';
+      statPriceRange.textContent = `Spanne: ${sumMin}–${sumMax} € • ${listedCount}/${doneItems.length} eingestellt${soldPart}`;
+    } else {
+      statPriceRange.textContent = `Spanne: ${sumMin} – ${sumMax} €`;
+    }
   }
   if (statHighDemand) statHighDemand.textContent = String(highCount);
   if (statRarities) statRarities.textContent = String(rarityCount);
@@ -2933,18 +3061,31 @@ function renderBatchDashboard() {
   batchFilterBar.classList.remove('hidden');
   btnClearBatchAll.classList.remove('hidden');
 
-  // Filtern
+  // Filtern nach Status / Kategorie
   let filtered = [...batchItems];
   if (currentBatchFilter === 'open') {
-    filtered = filtered.filter((i) => !i.isListed);
+    filtered = filtered.filter((i) => !i.isListed && !i.isSold);
   } else if (currentBatchFilter === 'listed') {
-    filtered = filtered.filter((i) => Boolean(i.isListed));
+    filtered = filtered.filter((i) => Boolean(i.isListed) && !i.isSold);
+  } else if (currentBatchFilter === 'sold') {
+    filtered = filtered.filter((i) => Boolean(i.isSold));
   } else if (currentBatchFilter === 'high') {
     filtered = filtered.filter((i) => i.status !== 'done' || i.data?.sellability === 'high');
   } else if (currentBatchFilter === 'rarity') {
     filtered = filtered.filter((i) => i.status !== 'done' || i.data?.isRarity);
   } else if (currentBatchFilter === 'low') {
     filtered = filtered.filter((i) => i.status !== 'done' || i.data?.sellability === 'low');
+  }
+
+  // Live-Textsuche
+  const searchQuery = (batchSearchInput?.value || '').trim().toLowerCase();
+  if (searchQuery) {
+    filtered = filtered.filter((i) => {
+      if (i.status !== 'done' || !i.data) return true;
+      const d = i.data;
+      const haystack = `${d.itemName || ''} ${d.title || ''} ${d.category || ''} ${d.description || ''}`.toLowerCase();
+      return haystack.includes(searchQuery);
+    });
   }
 
   // Sortieren
@@ -2974,14 +3115,14 @@ function renderBatchDashboard() {
       const imgs = getBatchItemImages(item);
       const photoCountBadge =
         imgs.length > 1
-          ? `<span class="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 text-[10px] font-bold text-emerald-300">${imgs.length} Fotos</span>`
+          ? `<span class="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 text-[10px] font-bold text-emerald-300 pointer-events-none">${imgs.length} Fotos</span>`
           : '';
 
       if (item.status === 'queued' || item.status === 'analyzing') {
         return `
           <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 flex items-center gap-3.5 animate-pulse">
             <div class="relative w-16 h-16 shrink-0">
-              <img src="${imgs[0]?.dataUrl || ''}" class="w-16 h-16 rounded-xl object-cover border border-slate-700" />
+              <img src="${imgs[0]?.dataUrl || ''}" data-lightbox-src="${imgs[0]?.dataUrl || ''}" class="w-16 h-16 rounded-xl object-cover border border-slate-700 cursor-zoom-in" />
               ${photoCountBadge}
             </div>
             <div class="flex-1 min-w-0">
@@ -2998,7 +3139,7 @@ function renderBatchDashboard() {
         return `
           <div class="bg-rose-950/30 border border-rose-800/60 rounded-2xl p-3.5 flex items-center gap-3.5">
             <div class="relative w-16 h-16 shrink-0">
-              <img src="${imgs[0]?.dataUrl || ''}" class="w-16 h-16 rounded-xl object-cover border border-rose-800" />
+              <img src="${imgs[0]?.dataUrl || ''}" data-lightbox-src="${imgs[0]?.dataUrl || ''}" class="w-16 h-16 rounded-xl object-cover border border-rose-800 cursor-zoom-in" />
               ${photoCountBadge}
             </div>
             <div class="flex-1 min-w-0">
@@ -3037,17 +3178,23 @@ function renderBatchDashboard() {
             imgs
               .map(
                 (im, idx) =>
-                  `<img src="${im.dataUrl}" class="w-10 h-10 rounded-lg object-cover border ${idx === 0 ? 'border-emerald-500/60' : 'border-slate-700'}" title="Foto ${idx + 1}" />`
+                  `<img src="${im.dataUrl}" data-lightbox-src="${im.dataUrl}" class="w-10 h-10 rounded-lg object-cover border ${idx === 0 ? 'border-emerald-500/60' : 'border-slate-700'} cursor-zoom-in hover:opacity-90 transition" title="Foto ${idx + 1} antippen zum Vergrößern" />`
               )
               .join('') +
             `</div>`
           : '';
 
       const isListed = Boolean(item.isListed);
+      const isSold = Boolean(item.isSold);
       const listingUrl = (item.listingUrl || '').trim();
       const isEditingLink = editingLinkForItemId === item.id;
+      const isTextExpanded = expandedTextForItemId === item.id;
 
-      const listedBadgeHtml = isListed
+      const soldBadgeHtml = isSold
+        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/25 text-amber-300 border border-amber-500/40">💰 Verkauft${item.soldPrice ? ` (${item.soldPrice} €)` : ''}</span>`
+        : '';
+
+      const listedBadgeHtml = isListed && !isSold
         ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40">📢 Eingestellt</span>`
         : '';
 
@@ -3060,16 +3207,16 @@ function renderBatchDashboard() {
               <span class="text-[10px] text-slate-400 font-normal truncate">(${escapeHtml(listingUrl)})</span>
             </a>
             <button type="button" data-action="edit-link" data-id="${item.id}" class="text-[11px] text-slate-400 hover:text-white shrink-0 px-1.5 py-0.5 rounded bg-slate-800">
-              Ändern
+              Status / Link
             </button>
           </div>`
           : '';
 
       const linkEditorHtml = isEditingLink
         ? `
-          <div class="bg-slate-950 border border-sky-500/40 rounded-xl p-3 space-y-2">
+          <div class="bg-slate-950/90 border border-sky-500/40 rounded-2xl p-3.5 space-y-2.5">
             <div class="flex items-center justify-between">
-              <span class="text-[11px] font-bold text-sky-300">📢 Inserats-Status & Verkaufslink (Kleinanzeigen / Vinted)</span>
+              <span class="text-[11px] font-bold text-sky-300">📢 Inserats-Status, Verkaufslink & Verkauft-Markierung</span>
               <button type="button" data-action="close-link-editor" data-id="${item.id}" class="text-[11px] text-slate-400 hover:text-white">✕</button>
             </div>
             <div class="flex flex-col sm:flex-row gap-2">
@@ -3100,26 +3247,92 @@ function renderBatchDashboard() {
                 </button>
               </div>
             </div>
-            <div class="flex items-center justify-between pt-1 text-[11px]">
-              <span class="text-slate-400">Auch ohne Link bleibt der Artikel als „📢 Eingestellt“ markiert.</span>
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-white/5 text-[11px]">
+              <div class="flex items-center gap-2">
+                ${
+                  !isSold
+                    ? `<button type="button" data-action="mark-sold" data-id="${item.id}" class="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold">💰 Als Verkauft markieren</button>`
+                    : `<button type="button" data-action="unmark-sold" data-id="${item.id}" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">Verkauft-Status aufheben</button>`
+                }
+              </div>
               ${
                 isListed
-                  ? `<button type="button" data-action="unmark-listed" data-id="${item.id}" class="text-rose-400 hover:text-rose-300 underline">Wieder auf „Offen“ setzen</button>`
+                  ? `<button type="button" data-action="unmark-listed" data-id="${item.id}" class="text-rose-400 hover:text-rose-300 underline">Zurück auf „Offen“ setzen</button>`
                   : ''
               }
             </div>
           </div>`
         : '';
 
+      const inlineTextDrawerHtml = isTextExpanded
+        ? `
+          <div class="bg-slate-950/90 border border-emerald-500/30 rounded-2xl p-3.5 space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-bold text-emerald-300">📄 Schnell-Vorschau & Direkt-Bearbeitung</span>
+              <div class="flex items-center gap-2">
+                <button type="button" data-action="open-detail-full" data-id="${item.id}" class="text-[11px] text-sky-300 hover:text-sky-200 underline">
+                  Im Voll-Editor öffnen ↗
+                </button>
+                <button type="button" data-action="toggle-text" data-id="${item.id}" class="text-xs text-slate-400 hover:text-white px-1">✕</button>
+              </div>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-2">
+              <div class="flex-1">
+                <div class="flex items-center justify-between mb-1">
+                  <label class="text-[10px] font-bold text-slate-400 uppercase">Anzeigen-Titel</label>
+                  <button type="button" data-action="copy-inline-title" data-id="${item.id}" class="text-[10px] font-bold text-emerald-400 hover:text-emerald-300">📋 Titel kopieren</button>
+                </div>
+                <input
+                  type="text"
+                  id="inlineTitle_${item.id}"
+                  value="${escapeHtml(d.title || d.itemName || '')}"
+                  class="w-full rounded-xl bg-slate-900 border border-white/10 px-3 py-1.5 text-xs font-semibold text-white focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+              <div class="sm:w-28">
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Preis (€)</label>
+                <input
+                  type="number"
+                  id="inlinePrice_${item.id}"
+                  value="${Number(d.recommendedPrice || 0)}"
+                  class="w-full rounded-xl bg-slate-900 border border-white/10 px-3 py-1.5 text-xs font-bold text-emerald-400 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-[10px] font-bold text-slate-400 uppercase">Beschreibung (Kleinanzeigen-fertig)</label>
+                <button type="button" data-action="copy-inline-desc" data-id="${item.id}" class="text-[10px] font-bold text-emerald-400 hover:text-emerald-300">📋 Text kopieren</button>
+              </div>
+              <textarea
+                id="inlineDesc_${item.id}"
+                rows="5"
+                class="w-full rounded-xl bg-slate-900 border border-white/10 p-2.5 text-xs text-slate-200 leading-relaxed focus:border-emerald-500 focus:outline-none"
+              >${escapeHtml(d.description || '')}</textarea>
+            </div>
+            <div class="flex justify-end gap-2">
+              <button
+                type="button"
+                data-action="save-inline-text"
+                data-id="${item.id}"
+                class="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition"
+              >
+                ✓ Änderungen speichern
+              </button>
+            </div>
+          </div>`
+        : '';
+
       return `
-        <div class="glass-card ${isListed ? '!border-sky-500/40' : ''} rounded-3xl p-4 space-y-3.5 transition shadow-lg">
+        <div class="glass-card ${isSold ? '!border-amber-500/40' : isListed ? '!border-sky-500/40' : ''} rounded-3xl p-4 space-y-3.5 transition shadow-lg">
           <div class="flex items-start gap-3.5">
             <div class="relative w-20 h-20 shrink-0">
-              <img src="${imgs[0]?.dataUrl || ''}" class="w-20 h-20 rounded-2xl object-cover border border-white/10" />
+              <img src="${imgs[0]?.dataUrl || ''}" data-lightbox-src="${imgs[0]?.dataUrl || ''}" class="w-20 h-20 rounded-2xl object-cover border border-white/10 cursor-zoom-in hover:opacity-90 transition" title="Antippen zum Vergrößern" />
               ${photoCountBadge}
             </div>
             <div class="flex-1 min-w-0 space-y-1">
               <div class="flex flex-wrap items-center gap-1.5">
+                ${soldBadgeHtml}
                 ${listedBadgeHtml}
                 ${badgeHtml}
                 ${rarityHtml}
@@ -3130,7 +3343,7 @@ function renderBatchDashboard() {
               ${extraThumbsHtml}
             </div>
             <div class="text-right shrink-0 pl-1">
-              <div class="text-lg sm:text-xl font-extrabold text-emerald-400 tracking-tight">${d.recommendedPrice} €</div>
+              <div class="text-lg sm:text-xl font-extrabold ${isSold ? 'text-amber-300' : 'text-emerald-400'} tracking-tight">${d.recommendedPrice} €</div>
               <div class="text-[10px] text-slate-400">${d.minPrice}–${d.maxPrice} €</div>
               <div class="text-[10px] font-semibold ${d.priceFromWebSearch ? 'text-emerald-400/90' : 'text-slate-500'} mt-0.5">${d.priceFromWebSearch ? '✓ Web-Preis' : 'Schätzung'}</div>
             </div>
@@ -3138,6 +3351,7 @@ function renderBatchDashboard() {
 
           ${listingLinkDisplayHtml}
           ${linkEditorHtml}
+          ${inlineTextDrawerHtml}
 
           <!-- Aufgeräumte, daumenfreundliche Aktionsleiste pro Karte -->
           <div class="pt-2.5 border-t border-white/5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
@@ -3156,13 +3370,15 @@ function renderBatchDashboard() {
                 data-action="toggle-listed"
                 data-id="${item.id}"
                 class="flex-1 sm:flex-initial py-2 px-3 rounded-xl ${
-                  isListed
+                  isSold
+                    ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40'
+                    : isListed
                     ? 'bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40'
                     : 'bg-slate-800/90 hover:bg-slate-800 text-slate-200 border border-white/10'
                 } font-bold text-xs transition text-center"
-                title="Als bei Kleinanzeigen eingestellt markieren & Link hinterlegen"
+                title="Als bei Kleinanzeigen eingestellt oder verkauft markieren & Link hinterlegen"
               >
-                <span>${isListed ? (listingUrl ? '🔗 Link' : '📢 Eingestellt') : '✅ Eingestellt'}</span>
+                <span>${isSold ? '💰 Verkauft' : isListed ? (listingUrl ? '🔗 Link' : '📢 Eingestellt') : '✅ Eingestellt'}</span>
               </button>
               <button
                 type="button"
@@ -3175,9 +3391,14 @@ function renderBatchDashboard() {
               </button>
               <button
                 type="button"
-                data-action="open-detail"
+                data-action="toggle-text"
                 data-id="${item.id}"
-                class="py-2 px-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-slate-200 border border-white/10 font-bold text-xs transition"
+                class="py-2 px-2.5 rounded-xl ${
+                  isTextExpanded
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : 'bg-slate-800/90 hover:bg-slate-800 text-slate-200 border border-white/10'
+                } font-bold text-xs transition"
+                title="Anzeigentext & Preis direkt aufklappen und bearbeiten"
               >
                 <span>📄 Text</span>
               </button>
@@ -3198,9 +3419,15 @@ function renderBatchDashboard() {
     .join('');
 }
 
-// Klick-Aktionen auf den Dashboard-Karten
+// Klick-Aktionen auf den Dashboard-Karten (inkl. Foto-Lightbox)
 if (batchItemsList) {
   batchItemsList.addEventListener('click', async (e) => {
+    const lightboxImg = e.target.closest('img[data-lightbox-src]');
+    if (lightboxImg && lightboxImg.dataset.lightboxSrc) {
+      openImageLightbox(lightboxImg.dataset.lightboxSrc);
+      return;
+    }
+
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     const action = btn.dataset.action;
@@ -3216,7 +3443,7 @@ if (batchItemsList) {
     }
 
     if (action === 'toggle-listed' || action === 'edit-link') {
-      if (!item.isListed) {
+      if (!item.isListed && !item.isSold) {
         item.isListed = true;
         item.listedAt = Date.now();
         await saveBatchToStorage(item);
@@ -3274,13 +3501,69 @@ if (batchItemsList) {
       return;
     }
 
+    if (action === 'mark-sold') {
+      item.isSold = true;
+      item.isListed = true;
+      item.soldAt = Date.now();
+      item.soldPrice = item.data?.recommendedPrice || 0;
+      editingLinkForItemId = null;
+      await saveBatchToStorage(item);
+      renderBatchDashboard();
+      showToast('💰 Artikel als „Verkauft“ markiert!');
+      return;
+    }
+
+    if (action === 'unmark-sold') {
+      item.isSold = false;
+      editingLinkForItemId = null;
+      await saveBatchToStorage(item);
+      renderBatchDashboard();
+      showToast('Verkauft-Status aufgehoben');
+      return;
+    }
+
     if (action === 'unmark-listed') {
       item.isListed = false;
+      item.isSold = false;
       item.listingUrl = '';
       editingLinkForItemId = null;
       await saveBatchToStorage(item);
       renderBatchDashboard();
       showToast('Status zurück auf „Offen“ gesetzt');
+      return;
+    }
+
+    if (action === 'toggle-text') {
+      expandedTextForItemId = expandedTextForItemId === item.id ? null : item.id;
+      renderBatchDashboard();
+      return;
+    }
+
+    if (action === 'copy-inline-title' && item.data) {
+      const val = document.getElementById(`inlineTitle_${item.id}`)?.value || item.data.title || '';
+      await navigator.clipboard.writeText(val);
+      showToast('✓ Titel kopiert!');
+      return;
+    }
+
+    if (action === 'copy-inline-desc' && item.data) {
+      const val = document.getElementById(`inlineDesc_${item.id}`)?.value || item.data.description || '';
+      await navigator.clipboard.writeText(val);
+      showToast('✓ Beschreibung kopiert!');
+      return;
+    }
+
+    if (action === 'save-inline-text' && item.data) {
+      const newTitle = (document.getElementById(`inlineTitle_${item.id}`)?.value || '').trim();
+      const newPrice = Number(document.getElementById(`inlinePrice_${item.id}`)?.value || item.data.recommendedPrice || 0);
+      const newDesc = (document.getElementById(`inlineDesc_${item.id}`)?.value || '').trim();
+      if (newTitle) item.data.title = newTitle;
+      if (newPrice >= 0) item.data.recommendedPrice = newPrice;
+      if (newDesc) item.data.description = newDesc;
+      expandedTextForItemId = null;
+      await saveBatchToStorage(item);
+      renderBatchDashboard();
+      showToast('✓ Titel, Preis & Text gespeichert!');
       return;
     }
 
@@ -3301,7 +3584,7 @@ if (batchItemsList) {
       return;
     }
 
-    if (action === 'open-detail' && item.data) {
+    if ((action === 'open-detail' || action === 'open-detail-full') && item.data) {
       // Übertrage Artikel inkl. aller Fotos in die Detail-Ansicht zum Bearbeiten / 1-Klick-Kopieren
       const d = item.data;
       uploadedImages = [...getBatchItemImages(item)];

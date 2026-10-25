@@ -246,8 +246,27 @@
       </div>
     </div>
 
-    <!-- Clean Filter Pills & Sort Bar -->
-    <div id="batchFilterBar" class="hidden flex items-center justify-between gap-2 pt-1">
+    <!-- Clean Filter Pills, Search & Sort Bar -->
+    <div id="batchFilterBar" class="hidden space-y-2 pt-1">
+      <div class="flex items-center gap-2">
+        <div class="relative flex-1">
+          <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+          <input
+            type="search"
+            id="batchSearchInput"
+            placeholder="Artikel im Bestand suchen..."
+            class="w-full rounded-full bg-slate-900/90 border border-white/10 pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-emerald-500 focus:outline-none"
+          />
+        </div>
+
+        <select id="batchSortSelect" class="rounded-full bg-slate-900/90 border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-300 focus:border-emerald-500 focus:outline-none shrink-0">
+          <option value="score_desc">Beste Chance</option>
+          <option value="price_desc">Preis ↓</option>
+          <option value="price_asc">Preis ↑</option>
+          <option value="newest">Neueste</option>
+        </select>
+      </div>
+
       <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
         <button type="button" data-filter="all" class="batch-filter-btn active px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-500 text-slate-950 shrink-0 transition">
           Alle
@@ -257,6 +276,9 @@
         </button>
         <button type="button" data-filter="listed" class="batch-filter-btn px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 border border-white/10 text-slate-300 hover:text-white shrink-0 transition">
           📢 Eingestellt
+        </button>
+        <button type="button" data-filter="sold" class="batch-filter-btn px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 border border-white/10 text-slate-300 hover:text-white shrink-0 transition">
+          💰 Verkauft
         </button>
         <button type="button" data-filter="high" class="batch-filter-btn px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 border border-white/10 text-slate-300 hover:text-white shrink-0 transition">
           🔥 Top-Seller
@@ -268,13 +290,6 @@
           📦 Konvolut
         </button>
       </div>
-
-      <select id="batchSortSelect" class="rounded-full bg-slate-900 border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-300 focus:border-emerald-500 focus:outline-none shrink-0">
-        <option value="score_desc">Beste Chance</option>
-        <option value="price_desc">Preis ↓</option>
-        <option value="price_asc">Preis ↑</option>
-        <option value="newest">Neueste</option>
-      </select>
     </div>
 
     <!-- Empty State -->
@@ -807,6 +822,26 @@
               <textarea id="vaultBlobTextarea" rows="3" readonly class="w-full font-mono text-[10px] bg-slate-900 border border-slate-800 rounded-lg p-2 text-emerald-300"></textarea>
             </div>
           </div>
+
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div>
+              <div class="font-bold text-slate-200 text-sm">Option C: Artikel-Bestand sichern / übertragen (JSON-Backup)</div>
+              <p class="text-[11px] text-slate-400 mt-0.5">
+                Exportiere alle deine gescannten Artikel inkl. Fotos, Texten und Verkaufslinks als Datei oder lade ein Backup ein.
+              </p>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" id="btnExportBatchBackup" class="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition flex items-center justify-center gap-1.5">
+                <i data-lucide="download" class="w-4 h-4 text-emerald-400"></i>
+                <span>Bestand exportieren</span>
+              </button>
+              <label class="cursor-pointer py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition flex items-center justify-center gap-1.5">
+                <i data-lucide="upload" class="w-4 h-4 text-teal-400"></i>
+                <span>Backup importieren</span>
+                <input type="file" id="importBatchBackupInput" accept=".json,application/json" class="hidden" />
+              </label>
+            </div>
+          </div>
         </div>
 
         <!-- TAB 3: SYSTEM-PROMPTS PRO PLATTFORM -->
@@ -908,12 +943,20 @@
     </div>
   </div>
 
+  <!-- Vollbild Foto-Lightbox (zum genauen Prüfen von Typenschild & Details) -->
+  <div id="imageLightboxModal" class="fixed inset-0 z-50 hidden bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4">
+    <button id="btnCloseLightbox" type="button" class="absolute top-4 right-4 w-10 h-10 rounded-full bg-slate-800/90 text-white flex items-center justify-center hover:bg-slate-700">
+      ✕
+    </button>
+    <img id="lightboxImage" src="" alt="Vollbild" class="max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl border border-white/10" />
+  </div>
+
   <!-- Toast Notification -->
   <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 hidden bg-slate-900/95 border border-emerald-500/40 text-white px-4 py-2.5 rounded-full shadow-2xl backdrop-blur-md text-xs font-bold flex items-center gap-2">
     <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400 shrink-0"></i>
     <span id="toastText">Kopiert!</span>
   </div>
 
-  <script src="app.js?v=20"></script>
+  <script src="app.js?v=21"></script>
 </body>
 </html>
