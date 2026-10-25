@@ -1797,20 +1797,21 @@ async function performTavilyVisualResearch({ images, notes = '', onStatusUpdate 
     }
     addDiagLog('Stufe 1/3: Extrahiere reine Bild-Merkmale (ohne Namens-Raten)...');
 
-    const queryGenPrompt = `Analysiere das Foto (und ggf. die Notiz: "${notes}") rein optisch, um Suchbegriffe für eine Websuche zu bilden.
+    const queryGenPrompt = `Analysiere alle ${images.length} Foto(s) dieses Artikels (z.B. Foto 1: Vorderseite/Gerät, Foto 2: Typenschild/Unterseite/Etikett; Notiz: "${notes}") rein optisch, um präzise Suchbegriffe für eine Websuche zu bilden.
 
-STRENGE REGEL GEGEN MARKEN- & NAMENS-HALLUZINATIONEN:
+STRENGE REGELN:
+- TYPENSCHILD & MODELLNUMMERN ZUERST: Wenn auf einem der Fotos (insb. Rückseite/Unterseite/Typenschild) Text, Markenname, Modellnummer (Model / M/N / P/N / Type / A-Nummer / Wattzahl, z.B. "M-R0084", "MX Master 3S", "Model A2663", "65W") lesbar ist, schreibe ALLE diese ablesbaren Nummern und Markennamen exakt in "readableBrandOrText"!
+- KEIN HINTERGRUND / KEIN TISCH: Beschreibe NIEMALS den Untergrund oder Hintergrund (NICHT "liegt auf Holztisch", NICHT "auf Holzoberfläche", NICHT "in der Hand")!
 - RATE NIEMALS EINE MARKE WIE "McDonald's", "Happy Meal", "Disney", "Ü-Ei" ODER EINEN CHARAKTERNAMEN (wie "Leo Lausemaus", "Simba"), wenn dieser Name NICHT buchstäblich als lesbarer Text auf dem Artikel abgedruckt ist!
 - WICHTIG BEI FIGUREN: Kleine handbemalte Kunststoff-Figuren, die auf einem Sockel, Podest oder einem Stapel Bücher/Blöcken stehen, sind fast immer "Tonie Hörfiguren" (Tonies). Wenn eine Figur auf flachen rechteckigen Stapeln steht, sind das "Bücher" (Bücherstapel) und ein flacher Gegenstand in der Pfote ist ein "Buch / Brief" mit "Stift / Feder".
-- Wenn du ein Tier siehst, nenne NUR die Tierart (z.B. "Löwe", "Elefant", "Bär").
 
-Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen rein optischen Feldern:
+Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
 {
-  "isFigureOnBase": true/false (true, wenn es eine Kunststoff-/Hörspiel-/Spielfigur ist, insbesondere auf einem Sockel/Bücherstapel),
-  "readableBrandOrText": "NUR buchstäblich ablesbarer Text/Markenlogo auf dem Objekt (MUSS '' leer sein, wenn kein Text lesbar ist! NIEMALS McDonald's o.ä. raten!)",
-  "mainSubject": "Was stellt die Figur / das Objekt rein optisch dar? (NUR 1-3 Wörter ohne Eigennamen, z.B. 'Löwe')",
-  "poseAndProps": "Worauf steht es und welche Gegenstände hält es? (Max. 6 Wörter, z.B. 'steht auf Stapel Bücher hält Buch Stift')",
-  "conditionNotes": "Sichtbarer optischer Zustand / Gebrauchsspuren auf dem Foto"
+  "isFigureOnBase": true/false (true NUR bei einer Spielfigur/Hörfigur; false bei Elektronik, Kleidung, Werkzeug, Haushalt etc.),
+  "readableBrandOrText": "ALLE buchstäblich ablesbaren Marken, Modellnummern (M/N, P/N, Model), Leistungsdaten (z.B. 65W) und Beschriftungen von Gerät & Typenschild (leer '', wenn nichts lesbar)",
+  "mainSubject": "Was für ein Artikel / welche Tierart ist es? (1-3 Wörter ohne Eigennamen, z.B. 'Funkmaus', 'USB-C Ladegerät', 'Löwe')",
+  "poseAndProps": "Bei Figuren: Pose & Gegenstände (z.B. 'steht auf Stapel Bücher hält Buch Stift'). Bei Technik/Alltag: Bauform, Anschlüsse, Tasten, Farbe OHNE Tisch/Hintergrund (z.B. 'schwarz ergonomisch Daumenrad Seitentasten')",
+  "conditionNotes": "Sichtbarer optischer Zustand / Gebrauchsspuren auf den Fotos"
 }`;
 
     const step1 = await executeUnifiedVisionRequest({
@@ -1831,36 +1832,37 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen rein optisch
     const qObj = JSON.parse(match[0]);
 
     const isFig = Boolean(qObj.isFigureOnBase);
-    // Entferne halluzinierte Marken wie McDonald's / Happy Meal hart aus den Suchbausteinen
+    // Entferne halluzinierte Marken sowie irrelevante Tisch-/Hintergrund-Wörter aus den Suchbausteinen
     const stripHallucinations = (s) =>
       String(s || '')
         .replace(/mcdonald'?s|happy\s*meal|lausemaus|sendung mit der maus|ü-ei|überraschungsei/gi, '')
+        .replace(/\b(liegt|steht|sitzt)?\s*auf\s*(einem|einer|dem|der)?\s*(holztisch|holzoberfläche|tisch|boden|untergrund|schreibtisch|oberfläche)\b/gi, '')
         .replace(/\s+/g, ' ')
         .trim();
 
     const readTxt = stripHallucinations(qObj.readableBrandOrText);
     const subj = stripHallucinations(qObj.mainSubject);
-    // Falls das Modell Bücher als "Blöcke" bezeichnet hat, ergänze "Bücher" für die Suche
+    // Falls das Modell bei einer Figur Bücher als "Blöcke" bezeichnet hat, ergänze "Bücher" für die Suche
     let props = stripHallucinations(qObj.poseAndProps);
-    if (/bl[öo]ck|stapel/i.test(props) && !/b[üu]ch/i.test(props)) {
+    if (isFig && /bl[öo]ck|stapel/i.test(props) && !/b[üu]ch/i.test(props)) {
       props = `${props} Bücher`;
     }
     const cond = (qObj.conditionNotes || '').trim();
 
     // Baue 3 parallele, halluzinationsfreie Suchanfragen:
-    // 1. Reine Optik-Suche (ohne geratene Marke)
-    const pureVisualQuery = ['Figur', subj, props, readTxt, notes].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
-    // 2. Gezielte Tonie-Hörfigur-Prüfung (falls es eine Figur ist)
+    // 1. Reine Optik- & Typenschild-Suche (OHNE 'Figur' bei normalen Geräten!)
+    const pureVisualQuery = [isFig ? 'Figur' : '', readTxt, subj, props, notes].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    // 2. Gezielte Tonie-Hörfigur-Prüfung (nur falls es eine Figur ist)
     const tonieQuery = isFig || /löwe|bär|hase|drache|figur/i.test(subj)
       ? ['Tonie Hörfigur', subj, props, notes].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
       : '';
     const shortProps = props.split(/\s+/).slice(0, 3).join(' ');
-    // 3. Preis- & Raritäten-Suche
-    const priceQuery = [isFig ? 'Tonie' : readTxt, subj, shortProps, 'gebraucht Preis Kleinanzeigen Rarität'].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    // 3. Preis- & Modell-Suche
+    const priceQuery = [isFig ? 'Tonie' : readTxt, subj, shortProps, 'gebraucht Preis Kleinanzeigen'].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 
     if (!pureVisualQuery) return null;
 
-    addDiagLog(`Optik erkannt: Motiv="${subj}", Details="${props}", FigurAufSockel=${isFig}`, 'info');
+    addDiagLog(`Optik (${images.length} Foto(s)): Text/Typenschild="${readTxt || '-'}", Motiv="${subj}", Details="${props}", Figur=${isFig}`, 'info');
     addDiagLog(`Tavily Suche 1 (Optik): "${pureVisualQuery}"`, 'info');
     if (tonieQuery) addDiagLog(`Tavily Suche 2 (Tonie-Check): "${tonieQuery}"`, 'info');
 
@@ -2494,7 +2496,126 @@ document.addEventListener('DOMContentLoaded', () => {
   loadBatchFromStorage();
 });
 
-// Neue Fotos in die Hintergrund-Queue werfen
+// Multi-Foto Sammel-State für den aktuellen Artikel (z.B. 1. Foto Gerät + 2. Foto Typenschild)
+let batchStagingImages = [];
+let targetBatchItemIdForPhotoAdd = null;
+
+const batchStagingBox = document.getElementById('batchStagingBox');
+const batchStagingGrid = document.getElementById('batchStagingGrid');
+const batchStagingCount = document.getElementById('batchStagingCount');
+const batchStagingAddCameraInput = document.getElementById('batchStagingAddCameraInput');
+const btnCommitStagingItem = document.getElementById('btnCommitStagingItem');
+const btnClearStaging = document.getElementById('btnClearStaging');
+const batchAddPhotoToItemInput = document.getElementById('batchAddPhotoToItemInput');
+
+function getBatchItemImages(item) {
+  if (Array.isArray(item.images) && item.images.length > 0) return item.images;
+  if (item.image) return [item.image];
+  return [];
+}
+
+function renderBatchStagingBox() {
+  if (!batchStagingBox || !batchStagingGrid) return;
+  if (batchStagingImages.length === 0) {
+    batchStagingBox.classList.add('hidden');
+    batchStagingGrid.innerHTML = '';
+    return;
+  }
+
+  batchStagingBox.classList.remove('hidden');
+  if (batchStagingCount) {
+    batchStagingCount.textContent = String(batchStagingImages.length);
+  }
+
+  batchStagingGrid.innerHTML = batchStagingImages
+    .map(
+      (img, idx) => `
+      <div class="relative w-20 h-20 rounded-xl overflow-hidden border border-emerald-500/50 shrink-0">
+        <img src="${img.dataUrl}" class="w-full h-full object-cover" alt="Foto ${idx + 1}" />
+        <span class="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/75 text-[10px] font-bold text-emerald-300">
+          ${idx === 0 ? '1. Artikel' : `${idx + 1}. Detail/Typ`}
+        </span>
+        <button type="button" data-stageidx="${idx}" class="remove-stage-img absolute top-1 right-1 w-5 h-5 rounded-full bg-black/80 text-white text-[10px] flex items-center justify-center hover:bg-rose-600">
+          ✕
+        </button>
+      </div>
+    `
+    )
+    .join('');
+}
+
+if (batchStagingGrid) {
+  batchStagingGrid.addEventListener('click', (e) => {
+    const btn = e.target.closest('.remove-stage-img');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.stageidx, 10);
+    batchStagingImages.splice(idx, 1);
+    renderBatchStagingBox();
+  });
+}
+
+function commitStagedItemToQueue() {
+  if (batchStagingImages.length === 0) return;
+  const imagesCopy = [...batchStagingImages];
+  batchStagingImages = [];
+  renderBatchStagingBox();
+
+  batchItems.unshift({
+    id: 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    createdAt: Date.now(),
+    status: 'queued',
+    image: imagesCopy[0],
+    images: imagesCopy,
+    data: null,
+    errorMsg: null
+  });
+
+  saveBatchToStorage();
+  renderBatchDashboard();
+  runBatchAgentQueue();
+  showToast(`Artikel (${imagesCopy.length} Foto${imagesCopy.length > 1 ? 's' : ''}) wird analysiert!`);
+}
+
+if (btnCommitStagingItem) {
+  btnCommitStagingItem.addEventListener('click', () => {
+    commitStagedItemToQueue();
+  });
+}
+
+if (btnClearStaging) {
+  btnClearStaging.addEventListener('click', () => {
+    batchStagingImages = [];
+    renderBatchStagingBox();
+  });
+}
+
+// Kamera-Aufnahme: Sammelt erst für den aktuellen Artikel (damit man noch ein 2. Foto vom Typenschild machen kann!)
+async function handleBatchCameraCapture(files, startNewItem = false) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    settingsModal.classList.remove('hidden');
+    showToast('Bitte zuerst einen API-Key hinterlegen');
+    return;
+  }
+
+  const imageFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
+  if (!imageFiles.length) return;
+
+  // Wenn der Nutzer auf "Neuen Artikel fotografieren" tippt und noch ein vorheriger Artikel in der Sammelbox lag -> vorherigen automatisch abschicken!
+  if (startNewItem && batchStagingImages.length > 0) {
+    commitStagedItemToQueue();
+  }
+
+  for (const file of imageFiles) {
+    const compressed = await compressImage(file, 800, 0.76);
+    batchStagingImages.push(compressed);
+  }
+
+  renderBatchStagingBox();
+  showToast(`Foto ${batchStagingImages.length} aufgenommen – Typenschild dazunehmen oder auf "Fertig" tippen!`);
+}
+
+// Galerie-Auswahl: Mehrere Fotos aus der Galerie als einzelne Artikel in die Hintergrund-Queue werfen
 async function enqueueBatchFiles(files) {
   const apiKey = getApiKey();
   if (!apiKey) {
@@ -2516,6 +2637,7 @@ async function enqueueBatchFiles(files) {
       createdAt: Date.now(),
       status: 'queued',
       image: compressed,
+      images: [compressed],
       data: null,
       errorMsg: null
     });
@@ -2528,8 +2650,42 @@ async function enqueueBatchFiles(files) {
 
 if (batchCameraInput) {
   batchCameraInput.addEventListener('change', (e) => {
-    enqueueBatchFiles(e.target.files);
+    handleBatchCameraCapture(e.target.files, true);
     batchCameraInput.value = '';
+  });
+}
+
+if (batchStagingAddCameraInput) {
+  batchStagingAddCameraInput.addEventListener('change', (e) => {
+    handleBatchCameraCapture(e.target.files, false);
+    batchStagingAddCameraInput.value = '';
+  });
+}
+
+if (batchAddPhotoToItemInput) {
+  batchAddPhotoToItemInput.addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files || []).filter((f) => f.type.startsWith('image/'));
+    batchAddPhotoToItemInput.value = '';
+    if (!files.length || !targetBatchItemIdForPhotoAdd) return;
+
+    const item = batchItems.find((i) => i.id === targetBatchItemIdForPhotoAdd);
+    targetBatchItemIdForPhotoAdd = null;
+    if (!item) return;
+
+    const existingImgs = getBatchItemImages(item);
+    for (const file of files) {
+      const compressed = await compressImage(file, 800, 0.76);
+      existingImgs.push(compressed);
+    }
+    item.images = existingImgs;
+    item.image = existingImgs[0];
+    item.status = 'queued';
+    item.errorMsg = null;
+
+    await saveBatchToStorage(item);
+    renderBatchDashboard();
+    showToast(`Typenschild/Foto ergänzt (${existingImgs.length} Fotos) – analysiere neu!`);
+    runBatchAgentQueue();
   });
 }
 
@@ -2567,11 +2723,12 @@ async function runBatchAgentQueue() {
       startDiagSession();
 
       try {
-        const analysis = await analyzeSingleBatchItemWithAgent(nextItem.image);
+        const itemImages = getBatchItemImages(nextItem);
+        const analysis = await analyzeSingleBatchItemWithAgent(itemImages);
         nextItem.status = 'done';
         nextItem.data = analysis;
         sendGitHubTelemetryReport({
-          mode: 'Batch-Agent',
+          mode: `Batch-Agent (${itemImages.length} Foto${itemImages.length > 1 ? 's' : ''})`,
           status: 'OK',
           summary: `Erkannt: **${analysis.itemName}** (${analysis.recommendedPrice} € | Score ${analysis.sellabilityScore}/10) | Modell: \`${analysis.usedModel}\``
         });
@@ -2608,14 +2765,15 @@ async function runBatchAgentQueue() {
   }
 }
 
-async function analyzeSingleBatchItemWithAgent(imgObj) {
+async function analyzeSingleBatchItemWithAgent(imgArrayOrSingle) {
+  const itemImages = Array.isArray(imgArrayOrSingle) ? imgArrayOrSingle : [imgArrayOrSingle];
   const systemPrompt = getSystemPrompt(currentPlatform);
 
-  // Wenn Tavily API-Key hinterlegt ist, macht auch der Hintergrund-Agent für jedes Foto die 2-Stufen-Webrecherche!
+  // Wenn Tavily API-Key hinterlegt ist, macht auch der Hintergrund-Agent für alle Fotos des Artikels die 2-Stufen-Webrecherche!
   let tavilyData = null;
   if (getTavilyApiKey()) {
     tavilyData = await performTavilyVisualResearch({
-      images: [imgObj],
+      images: itemImages,
       notes: '',
       onStatusUpdate: (msg) => {
         if (batchAgentStatusText) batchAgentStatusText.textContent = msg;
@@ -2625,8 +2783,8 @@ async function analyzeSingleBatchItemWithAgent(imgObj) {
 
   const batchPrompt = `
 Du bist ein präziser Verkaufs- und Bewertungs-Agent für Gebrauchtwaren (${PLATFORM_META[currentPlatform].name}).
-Analysiere das Foto und die beigefügten Web-Recherche-Ergebnisse exakt:
-1. Identifiziere den genauen Artikel mit seinem EXAKTEN offiziellen Produktnamen/Titel (Hersteller, Modell, Serie/Hörspieltitel).
+Analysiere alle ${itemImages.length} Foto(s) dieses Artikels (z.B. Vorderseite + Typenschild/Unterseite) und die beigefügten Web-Recherche-Ergebnisse exakt:
+1. Identifiziere den genauen Artikel mit seinem EXAKTEN offiziellen Produktnamen/Modellnummer (Hersteller, genaues Modell laut Typenschild, Serie/Hörspieltitel).
 2. Bewerte die VERKÄUFLICHKEIT (Nachfrage am Gebrauchtmarkt):
    - "high" (Sehr gut verkäuflich / Schnelldreher, z.B. beliebte Tonies, Marken-Elektronik, Lego, gefragte Markenkleidung)
    - "medium" (Normal verkäuflich, braucht etwas Geduld oder guten Preis)
@@ -2636,7 +2794,7 @@ Analysiere das Foto und die beigefügten Web-Recherche-Ergebnisse exakt:
 ${tavilyData ? '\n' + tavilyData.contextText + '\n' : ''}
 Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit diesen Feldern:
 {
-  "itemName": "Exakter offizieller Name des erkannten Artikels",
+  "itemName": "Exakter offizieller Name & Modell des erkannten Artikels",
   "identificationConfidence": "hoch" | "mittel" | "niedrig",
   "category": "Kategorie / Marke (z.B. Tonies / Spielzeug)",
   "sellability": "high" | "medium" | "low",
@@ -2655,7 +2813,7 @@ Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit diesen Feldern:
   const aiRes = await executeUnifiedVisionRequest({
     systemPrompt,
     userPrompt: batchPrompt,
-    images: [imgObj],
+    images: itemImages,
     maxTokens: 1300,
     timeoutMs: 15000,
     allowGeminiSearch: false
@@ -2799,13 +2957,22 @@ function renderBatchDashboard() {
 
   batchItemsList.innerHTML = filtered
     .map((item) => {
+      const imgs = getBatchItemImages(item);
+      const photoCountBadge =
+        imgs.length > 1
+          ? `<span class="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 text-[10px] font-bold text-emerald-300">${imgs.length} Fotos</span>`
+          : '';
+
       if (item.status === 'queued' || item.status === 'analyzing') {
         return `
           <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 flex items-center gap-3.5 animate-pulse">
-            <img src="${item.image.dataUrl}" class="w-16 h-16 rounded-xl object-cover border border-slate-700 shrink-0" />
+            <div class="relative w-16 h-16 shrink-0">
+              <img src="${imgs[0]?.dataUrl || ''}" class="w-16 h-16 rounded-xl object-cover border border-slate-700" />
+              ${photoCountBadge}
+            </div>
             <div class="flex-1 min-w-0">
               <div class="text-xs font-bold text-emerald-400">
-                ${item.status === 'analyzing' ? '🔍 KI-Agent prüft Artikel, Nachfrage & Preis...' : '⏳ In Warteschlange...'}
+                ${item.status === 'analyzing' ? `🔍 KI-Agent prüft ${imgs.length} Foto(s), Typenschild & Preis...` : '⏳ In Warteschlange...'}
               </div>
               <div class="text-[11px] text-slate-400 mt-1">Wird automatisch im Hintergrund verarbeitet</div>
             </div>
@@ -2816,7 +2983,10 @@ function renderBatchDashboard() {
       if (item.status === 'error') {
         return `
           <div class="bg-rose-950/30 border border-rose-800/60 rounded-2xl p-3.5 flex items-center gap-3.5">
-            <img src="${item.image.dataUrl}" class="w-16 h-16 rounded-xl object-cover border border-rose-800 shrink-0" />
+            <div class="relative w-16 h-16 shrink-0">
+              <img src="${imgs[0]?.dataUrl || ''}" class="w-16 h-16 rounded-xl object-cover border border-rose-800" />
+              ${photoCountBadge}
+            </div>
             <div class="flex-1 min-w-0">
               <div class="text-xs font-bold text-rose-300">Analyse fehlgeschlagen</div>
               <div class="text-[11px] text-rose-400 truncate mt-0.5">${escapeHtml(item.errorMsg || '')}</div>
@@ -2847,10 +3017,25 @@ function renderBatchDashboard() {
         ? `<span class="px-2 py-0.5 rounded-full text-[10px] bg-slate-800 text-slate-400">Erkennung: mittel</span>`
         : '';
 
+      const extraThumbsHtml =
+        imgs.length > 1
+          ? `<div class="flex gap-1.5 pt-1 overflow-x-auto no-scrollbar">` +
+            imgs
+              .map(
+                (im, idx) =>
+                  `<img src="${im.dataUrl}" class="w-10 h-10 rounded-lg object-cover border ${idx === 0 ? 'border-emerald-500/60' : 'border-slate-700'}" title="Foto ${idx + 1}" />`
+              )
+              .join('') +
+            `</div>`
+          : '';
+
       return `
         <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 space-y-3 transition">
           <div class="flex items-start gap-3.5">
-            <img src="${item.image.dataUrl}" class="w-20 h-20 rounded-xl object-cover border border-slate-700 shrink-0" />
+            <div class="relative w-20 h-20 shrink-0">
+              <img src="${imgs[0]?.dataUrl || ''}" class="w-20 h-20 rounded-xl object-cover border border-slate-700" />
+              ${photoCountBadge}
+            </div>
             <div class="flex-1 min-w-0 space-y-1">
               <div class="flex flex-wrap items-center gap-1.5">
                 ${badgeHtml}
@@ -2860,6 +3045,7 @@ function renderBatchDashboard() {
               </div>
               <h3 class="font-bold text-sm text-white leading-snug">${escapeHtml(d.itemName)}</h3>
               <p class="text-xs text-slate-400 leading-relaxed">${escapeHtml(d.sellabilityReason)}</p>
+              ${extraThumbsHtml}
             </div>
             <div class="text-right shrink-0">
               <div class="text-base sm:text-lg font-extrabold text-emerald-400">${d.recommendedPrice} €</div>
@@ -2871,7 +3057,7 @@ function renderBatchDashboard() {
 
           <!-- Direkt-Aktionen pro Karte -->
           <div class="pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
-            <div class="flex items-center gap-1.5">
+            <div class="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 data-action="launch"
@@ -2882,11 +3068,20 @@ function renderBatchDashboard() {
               </button>
               <button
                 type="button"
+                data-action="add-photo"
+                data-id="${item.id}"
+                class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 font-semibold text-xs transition"
+                title="Weiteres Foto (z.B. Typenschild oder Rückseite) zu diesem Artikel aufnehmen und neu analysieren"
+              >
+                <span>📷 + Typenschild / Foto</span>
+              </button>
+              <button
+                type="button"
                 data-action="open-detail"
                 data-id="${item.id}"
-                class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition"
+                class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition"
               >
-                <span>Text / Details ansehen</span>
+                <span>Details</span>
               </button>
             </div>
             <button
@@ -2922,6 +3117,14 @@ if (batchItemsList) {
       return;
     }
 
+    if (action === 'add-photo') {
+      targetBatchItemIdForPhotoAdd = item.id;
+      if (batchAddPhotoToItemInput) {
+        batchAddPhotoToItemInput.click();
+      }
+      return;
+    }
+
     if (action === 'retry') {
       item.status = 'queued';
       item.errorMsg = null;
@@ -2932,9 +3135,9 @@ if (batchItemsList) {
     }
 
     if (action === 'open-detail' && item.data) {
-      // Übertrage Artikel in die Detail-Ansicht zum Bearbeiten / 1-Klick-Kopieren
+      // Übertrage Artikel inkl. aller Fotos in die Detail-Ansicht zum Bearbeiten / 1-Klick-Kopieren
       const d = item.data;
-      uploadedImages = [item.image];
+      uploadedImages = [...getBatchItemImages(item)];
       renderImagePreviews();
       renderResult(
         {
