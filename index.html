@@ -189,6 +189,22 @@
 
         <div id="batchStagingGrid" class="flex gap-2.5 overflow-x-auto pb-1 no-scrollbar"></div>
 
+        <!-- Optionale Zustands-/Zubehör-Notiz für diesen Artikel -->
+        <div class="space-y-1.5 pt-1">
+          <input
+            type="text"
+            id="batchStagingNoteInput"
+            placeholder="Optional: z.B. 'mit OVP', 'ohne Netzteil', 'Größe L'..."
+            class="w-full rounded-xl bg-slate-900 border border-white/10 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-emerald-500 focus:outline-none"
+          />
+          <div class="flex gap-1.5 overflow-x-auto no-scrollbar">
+            <button type="button" data-stagetag="Mit OVP" class="staging-tag-chip px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] font-semibold text-slate-300 hover:text-emerald-300 shrink-0 transition">📦 Mit OVP</button>
+            <button type="button" data-stagetag="Top Zustand, kaum genutzt" class="staging-tag-chip px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] font-semibold text-slate-300 hover:text-emerald-300 shrink-0 transition">✨ Wie neu</button>
+            <button type="button" data-stagetag="Ohne Zubehör / Kabel" class="staging-tag-chip px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] font-semibold text-slate-300 hover:text-amber-300 shrink-0 transition">🔌 Ohne Kabel</button>
+            <button type="button" data-stagetag="Defekt / für Bastler" class="staging-tag-chip px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-[10px] font-semibold text-slate-300 hover:text-rose-300 shrink-0 transition">🛠️ Bastler/Defekt</button>
+          </div>
+        </div>
+
         <div class="grid grid-cols-2 gap-2">
           <label class="cursor-pointer py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-emerald-300 border border-emerald-500/30 font-bold text-xs flex items-center justify-center gap-1.5 transition">
             <i data-lucide="plus" class="w-4 h-4"></i>
@@ -305,6 +321,21 @@
 
     <!-- Dashboard Artikel-Karten Liste -->
     <div id="batchItemsList" class="space-y-3"></div>
+
+    <!-- Schwebende Konvolut-/Set-Aktionsleiste bei Mehrfachauswahl -->
+    <div id="bundleActionBar" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-lg glass-card !bg-slate-950/95 !border-emerald-500/50 rounded-2xl p-3 shadow-2xl flex items-center justify-between gap-3">
+      <div class="text-xs">
+        <div class="font-extrabold text-white"><span id="bundleCountText">0</span> Artikel ausgewählt</div>
+        <div id="bundlePriceText" class="text-[11px] text-emerald-400">Set-Preis: 0 € (-15% Paket-Rabatt)</div>
+      </div>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <button type="button" id="btnCancelBundle" class="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition">Abbrechen</button>
+        <button type="button" id="btnCreateBundleItem" class="px-3.5 py-2 rounded-xl cta-gradient active:scale-95 text-slate-950 text-xs font-extrabold shadow-md transition flex items-center gap-1">
+          <i data-lucide="package" class="w-3.5 h-3.5 stroke-[2.5]"></i>
+          <span>Set erstellen</span>
+        </button>
+      </div>
+    </div>
 
   </section>
 
@@ -823,9 +854,33 @@
             </div>
           </div>
 
+          <!-- Option C: GitHub Cloud-Sync für Handy ↔ PC -->
+          <div class="bg-slate-950 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
+            <div>
+              <div class="font-bold text-emerald-400 text-sm flex items-center gap-1.5">
+                <i data-lucide="cloud" class="w-4 h-4"></i>
+                <span>Option C: 1-Klick GitHub Cloud-Sync (Handy ↔ PC)</span>
+              </div>
+              <p class="text-[11px] text-slate-400 mt-0.5">
+                Gleiche deinen Artikel-Bestand drahtlos zwischen Handy und PC ab – sicher über deinen vorhandenen GitHub PAT.
+              </p>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" id="btnCloudPushBatch" class="py-2.5 px-3 rounded-xl cta-gradient text-slate-950 font-extrabold text-xs transition flex items-center justify-center gap-1.5">
+                <i data-lucide="cloud-upload" class="w-4 h-4"></i>
+                <span>Hochladen (Cloud)</span>
+              </button>
+              <button type="button" id="btnCloudPullBatch" class="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition flex items-center justify-center gap-1.5">
+                <i data-lucide="cloud-download" class="w-4 h-4 text-emerald-400"></i>
+                <span>Herunterladen</span>
+              </button>
+            </div>
+            <p id="cloudSyncStatusText" class="text-[11px] text-slate-400 text-center"></p>
+          </div>
+
           <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
             <div>
-              <div class="font-bold text-slate-200 text-sm">Option C: Artikel-Bestand sichern / übertragen (JSON-Backup)</div>
+              <div class="font-bold text-slate-200 text-sm">Option D: Artikel-Bestand sichern / übertragen (JSON-Backup)</div>
               <p class="text-[11px] text-slate-400 mt-0.5">
                 Exportiere alle deine gescannten Artikel inkl. Fotos, Texten und Verkaufslinks als Datei oder lade ein Backup ein.
               </p>
@@ -957,6 +1012,6 @@
     <span id="toastText">Kopiert!</span>
   </div>
 
-  <script src="app.js?v=21"></script>
+  <script src="app.js?v=22"></script>
 </body>
 </html>

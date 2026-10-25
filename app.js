@@ -2531,6 +2531,7 @@ let batchStagingImages = [];
 let targetBatchItemIdForPhotoAdd = null;
 let editingLinkForItemId = null;
 let expandedTextForItemId = null;
+const selectedBatchItemIds = new Set();
 
 const batchStagingBox = document.getElementById('batchStagingBox');
 const batchStagingGrid = document.getElementById('batchStagingGrid');
@@ -2540,11 +2541,35 @@ const btnCommitStagingItem = document.getElementById('btnCommitStagingItem');
 const btnClearStaging = document.getElementById('btnClearStaging');
 const batchAddPhotoToItemInput = document.getElementById('batchAddPhotoToItemInput');
 const batchSearchInput = document.getElementById('batchSearchInput');
+const batchStagingNoteInput = document.getElementById('batchStagingNoteInput');
 const imageLightboxModal = document.getElementById('imageLightboxModal');
 const lightboxImage = document.getElementById('lightboxImage');
 const btnCloseLightbox = document.getElementById('btnCloseLightbox');
 const btnExportBatchBackup = document.getElementById('btnExportBatchBackup');
 const importBatchBackupInput = document.getElementById('importBatchBackupInput');
+const bundleActionBar = document.getElementById('bundleActionBar');
+const bundleCountText = document.getElementById('bundleCountText');
+const bundlePriceText = document.getElementById('bundlePriceText');
+const btnCancelBundle = document.getElementById('btnCancelBundle');
+const btnCreateBundleItem = document.getElementById('btnCreateBundleItem');
+const btnCloudPushBatch = document.getElementById('btnCloudPushBatch');
+const btnCloudPullBatch = document.getElementById('btnCloudPullBatch');
+const cloudSyncStatusText = document.getElementById('cloudSyncStatusText');
+
+// Tag-Chips im Kamera-Sammel-Dock für schnelle Zustands-/Zubehörnotizen
+document.querySelectorAll('.staging-tag-chip').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    if (!batchStagingNoteInput) return;
+    const tag = btn.dataset.stagetag;
+    const cur = batchStagingNoteInput.value.trim();
+    if (!cur) {
+      batchStagingNoteInput.value = tag;
+    } else if (!cur.includes(tag)) {
+      batchStagingNoteInput.value = `${cur}, ${tag}`;
+    }
+    batchStagingNoteInput.focus();
+  });
+});
 
 function getBatchItemImages(item) {
   if (Array.isArray(item.images) && item.images.length > 0) return item.images;
@@ -2595,7 +2620,9 @@ if (batchStagingGrid) {
 function commitStagedItemToQueue() {
   if (batchStagingImages.length === 0) return;
   const imagesCopy = [...batchStagingImages];
+  const userNotes = (batchStagingNoteInput?.value || '').trim();
   batchStagingImages = [];
+  if (batchStagingNoteInput) batchStagingNoteInput.value = '';
   renderBatchStagingBox();
 
   batchItems.unshift({
@@ -2604,6 +2631,7 @@ function commitStagedItemToQueue() {
     status: 'queued',
     image: imagesCopy[0],
     images: imagesCopy,
+    userNotes,
     data: null,
     errorMsg: null
   });
@@ -2623,6 +2651,7 @@ if (btnCommitStagingItem) {
 if (btnClearStaging) {
   btnClearStaging.addEventListener('click', () => {
     batchStagingImages = [];
+    if (batchStagingNoteInput) batchStagingNoteInput.value = '';
     renderBatchStagingBox();
   });
 }
@@ -2762,7 +2791,7 @@ async function runBatchAgentQueue() {
 
       try {
         const itemImages = getBatchItemImages(nextItem);
-        const analysis = await analyzeSingleBatchItemWithAgent(itemImages);
+        const analysis = await analyzeSingleBatchItemWithAgent(itemImages, nextItem.userNotes || '');
         nextItem.status = 'done';
         nextItem.data = analysis;
         sendGitHubTelemetryReport({
@@ -2803,7 +2832,7 @@ async function runBatchAgentQueue() {
   }
 }
 
-async function analyzeSingleBatchItemWithAgent(imgArrayOrSingle) {
+async function analyzeSingleBatchItemWithAgent(imgArrayOrSingle, userNotes = '') {
   const itemImages = Array.isArray(imgArrayOrSingle) ? imgArrayOrSingle : [imgArrayOrSingle];
   const systemPrompt = getSystemPrompt(currentPlatform);
 
@@ -2812,7 +2841,7 @@ async function analyzeSingleBatchItemWithAgent(imgArrayOrSingle) {
   if (getTavilyApiKey()) {
     tavilyData = await performTavilyVisualResearch({
       images: itemImages,
-      notes: '',
+      notes: userNotes,
       onStatusUpdate: (msg) => {
         if (batchAgentStatusText) batchAgentStatusText.textContent = msg;
       }
@@ -2823,6 +2852,7 @@ async function analyzeSingleBatchItemWithAgent(imgArrayOrSingle) {
 Du bist ein präziser Verkaufs- und Bewertungs-Agent für Gebrauchtwaren (${PLATFORM_META[currentPlatform].name}).
 Analysiere alle ${itemImages.length} Foto(s) dieses Artikels (z.B. Vorderseite + Typenschild/Unterseite) und die beigefügten Web-Recherche-Ergebnisse exakt:
 1. Identifiziere den genauen Artikel mit seinem EXAKTEN offiziellen Produktnamen/Modellnummer (Hersteller, genaues Modell laut Typenschild, Serie/Hörspieltitel).
+${userNotes ? `WICHTIGE NUTZER-NOTIZ ZUM ARTIKEL/ZUSTAND: "${userNotes}" (Berücksichtige dies zwingend beim Preis und erwähne es ehrlich in der Beschreibung!).` : ''}
 2. Bewerte die VERKÄUFLICHKEIT (Nachfrage am Gebrauchtmarkt):
    - "high" (Sehr gut verkäuflich / Schnelldreher, z.B. beliebte Tonies, Marken-Elektronik, Lego, gefragte Markenkleidung)
    - "medium" (Normal verkäuflich, braucht etwas Geduld oder guten Preis)
@@ -2987,8 +3017,288 @@ if (importBatchBackupInput) {
   });
 }
 
+// Wandelt dataUrl zu File/Blob um und teilt über Web Share API bzw. bietet Download an
+async function shareOrDownloadItemImages(item) {
+  const imgs = getBatchItemImages(item);
+  if (!imgs.length) {
+    showToast('Keine Fotos vorhanden');
+    return;
+  }
+
+  try {
+    const files = [];
+    for (let idx = 0; idx < imgs.length; idx++) {
+      const im = imgs[idx];
+      const res = await fetch(im.dataUrl);
+      const blob = await res.blob();
+      const ext = blob.type.includes('png') ? 'png' : 'jpg';
+      const file = new File([blob], `sellmate_${item.id}_${idx + 1}.${ext}`, { type: blob.type || 'image/jpeg' });
+      files.push(file);
+    }
+
+    if (navigator.canShare && navigator.canShare({ files })) {
+      await navigator.share({
+        files,
+        title: item.data?.title || item.data?.itemName || 'SellMate Artikel',
+        text: item.data?.description || ''
+      });
+      showToast('✓ Fotos erfolgreich geteilt!');
+      return;
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') return; // Nutzer hat Teilen-Dialog geschlossen
+    // Fallback auf Download
+  }
+
+  // Fallback: Einzel-Download
+  imgs.forEach((im, idx) => {
+    const a = document.createElement('a');
+    a.href = im.dataUrl;
+    a.download = `sellmate_${(item.data?.itemName || 'artikel').replace(/[^a-z0-9]/gi, '_')}_${idx + 1}.jpg`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+  showToast(`✓ ${imgs.length} Foto(s) heruntergeladen!`);
+}
+
+// Konvolut- / Set-Aktionsleiste aktualisieren
+function updateBundleActionBar() {
+  if (!bundleActionBar || !bundleCountText || !bundlePriceText) return;
+  const count = selectedBatchItemIds.size;
+  if (count < 2) {
+    bundleActionBar.classList.add('hidden');
+    return;
+  }
+  bundleActionBar.classList.remove('hidden');
+  bundleCountText.textContent = String(count);
+
+  const selectedItems = batchItems.filter((i) => selectedBatchItemIds.has(i.id) && i.data);
+  const sumRec = selectedItems.reduce((acc, i) => acc + (i.data?.recommendedPrice || 0), 0);
+  const bundlePrice = Math.max(1, Math.round(sumRec * 0.85));
+  bundlePriceText.textContent = `Set-Preis: ${bundlePrice} € (statt ${sumRec} € Einzelpreise, -15% Rabatt)`;
+}
+
+if (btnCancelBundle) {
+  btnCancelBundle.addEventListener('click', () => {
+    selectedBatchItemIds.clear();
+    updateBundleActionBar();
+    renderBatchDashboard();
+  });
+}
+
+if (btnCreateBundleItem) {
+  btnCreateBundleItem.addEventListener('click', async () => {
+    const selectedItems = batchItems.filter((i) => selectedBatchItemIds.has(i.id) && i.data);
+    if (selectedItems.length < 2) {
+      showToast('Bitte mindestens 2 fertige Artikel auswählen');
+      return;
+    }
+
+    const allImages = [];
+    selectedItems.forEach((it) => {
+      const imgs = getBatchItemImages(it);
+      if (imgs[0]) allImages.push(imgs[0]);
+    });
+
+    const sumRec = selectedItems.reduce((acc, i) => acc + (i.data.recommendedPrice || 0), 0);
+    const bundlePrice = Math.max(1, Math.round(sumRec * 0.85));
+    const itemNamesList = selectedItems.map((i, idx) => `${idx + 1}. ${i.data.itemName} (Einzelwert: ${i.data.recommendedPrice} €)`).join('\n');
+
+    const bundleItemName = `Set (${selectedItems.length} Artikel): ${selectedItems.map((i) => i.data.itemName).slice(0, 3).join(', ')}${selectedItems.length > 3 ? ' u.a.' : ''}`;
+    const bundleTitle = `Set / Paket (${selectedItems.length}x): ${selectedItems.map((i) => i.data.itemName).slice(0, 2).join(' + ')}`;
+
+    const bundleDescription = sanitizePlainTextDescription(
+      `Verkaufe hier ein praktisches ${selectedItems.length}-teiliges Set / Konvolut im Paket:\n\n` +
+      `Im Set enthalten:\n${itemNamesList}\n\n` +
+      `Gesamter Einzelwert: ca. ${sumRec} €.\n` +
+      `Komplett-Set-Preis: nur ${bundlePrice} € (Paket-Vorteil!).\n\n` +
+      `Zustand siehe Originalfotos. Tierfreier Nichtraucherhaushalt. Bei Fragen gerne melden!`
+    );
+
+    const newBundleItem = {
+      id: 'bundle_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      createdAt: Date.now(),
+      status: 'done',
+      image: allImages[0] || null,
+      images: allImages,
+      userNotes: `Erstellt aus ${selectedItems.length} gebündelten Einzelartikeln`,
+      data: {
+        itemName: bundleItemName,
+        identificationConfidence: 'hoch',
+        priceFromWebSearch: false,
+        category: 'Konvolut / Set',
+        sellability: 'high',
+        sellabilityScore: 9,
+        sellabilityReason: `Attraktives Set-Angebot mit ${selectedItems.length} Artikeln und 15% Paket-Rabatt.`,
+        sellingStrategy: 'Als Konvolut / Paket bündeln',
+        isRarity: false,
+        minPrice: Math.round(bundlePrice * 0.85),
+        maxPrice: Math.round(bundlePrice * 1.15),
+        recommendedPrice: bundlePrice,
+        bestPlatform: PLATFORM_META[currentPlatform].name,
+        title: bundleTitle,
+        description: bundleDescription,
+        usedModel: 'SellMate Set-Generator'
+      }
+    };
+
+    batchItems.unshift(newBundleItem);
+    selectedBatchItemIds.clear();
+    updateBundleActionBar();
+    await saveBatchToStorage(newBundleItem);
+    renderBatchDashboard();
+    showToast(`✓ Set mit ${selectedItems.length} Artikeln erfolgreich erstellt!`);
+  });
+}
+
+// 1-Klick GitHub Cloud-Sync für Handy ↔ PC
+async function cloudPushBatchToGitHub() {
+  const pat = localStorage.getItem('sellmate_diag_gh_pat');
+  if (!pat) {
+    settingsModal.classList.remove('hidden');
+    showToast('Bitte zuerst im Admin-Tab einen GitHub PAT hinterlegen');
+    return;
+  }
+  const repo = localStorage.getItem('sellmate_diag_gh_repo') || 'krautbaron/sellmate-ai';
+
+  if (!batchItems.length) {
+    showToast('Keine Artikel zum Hochladen vorhanden');
+    return;
+  }
+
+  if (cloudSyncStatusText) cloudSyncStatusText.textContent = '⏳ Lade Artikel-Bestand in GitHub Cloud hoch...';
+
+  try {
+    const payload = {
+      version: 'sellmate-sync-v1',
+      syncedAt: new Date().toISOString(),
+      itemCount: batchItems.length,
+      items: batchItems
+    };
+    const bodyContent = `<!-- SELLMATE_INVENTORY_DATA_START -->\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\`\n<!-- SELLMATE_INVENTORY_DATA_END -->\n\n*Automatisch synchronisierter Artikel-Bestand (${batchItems.length} Artikel) via SellMate AI Cloud-Sync.*`;
+
+    // Prüfe ob Issue #2 existiert
+    const checkRes = await fetch(`https://api.github.com/repos/${repo}/issues/2`, {
+      headers: {
+        Authorization: `Bearer ${pat}`,
+        Accept: 'application/vnd.github.v3+json'
+      }
+    });
+
+    if (checkRes.ok) {
+      const patchRes = await fetch(`https://api.github.com/repos/${repo}/issues/2`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${pat}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: '☁️ SellMate Cloud-Inventory Sync',
+          body: bodyContent
+        })
+      });
+      if (!patchRes.ok) {
+        throw new Error(`GitHub HTTP ${patchRes.status}`);
+      }
+    } else {
+      const postRes = await fetch(`https://api.github.com/repos/${repo}/issues`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${pat}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: '☁️ SellMate Cloud-Inventory Sync',
+          body: bodyContent
+        })
+      });
+      if (!postRes.ok) {
+        throw new Error(`GitHub HTTP ${postRes.status}`);
+      }
+    }
+
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (cloudSyncStatusText) cloudSyncStatusText.textContent = `✓ Zuletzt hochgeladen: Heute um ${timeStr} (${batchItems.length} Artikel)`;
+    showToast(`✓ ${batchItems.length} Artikel in die GitHub-Cloud gesichert!`);
+  } catch (err) {
+    if (cloudSyncStatusText) cloudSyncStatusText.textContent = `Fehler: ${err?.message || err}`;
+    showToast(`Cloud-Upload fehlgeschlagen: ${err?.message || err}`);
+  }
+}
+
+async function cloudPullBatchFromGitHub() {
+  const pat = localStorage.getItem('sellmate_diag_gh_pat');
+  if (!pat) {
+    settingsModal.classList.remove('hidden');
+    showToast('Bitte zuerst im Admin-Tab einen GitHub PAT hinterlegen');
+    return;
+  }
+  const repo = localStorage.getItem('sellmate_diag_gh_repo') || 'krautbaron/sellmate-ai';
+
+  if (cloudSyncStatusText) cloudSyncStatusText.textContent = '⏳ Lade Artikel-Bestand aus GitHub Cloud herunter...';
+
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repo}/issues/2`, {
+      headers: {
+        Authorization: `Bearer ${pat}`,
+        Accept: 'application/vnd.github.v3+json'
+      }
+    });
+
+    if (!res.ok) {
+      if (res.status === 404) {
+        throw new Error('Noch kein Cloud-Backup vorhanden. Bitte zuerst auf dem anderen Gerät „Hochladen“ tippen.');
+      }
+      throw new Error(`GitHub HTTP ${res.status}`);
+    }
+
+    const issue = await res.json();
+    const rawBody = issue.body || '';
+    const jsonMatch = rawBody.match(/```json\s*([\s\S]*?)\s*```/);
+    if (!jsonMatch) {
+      throw new Error('Keine gültigen Bestandsdaten in Issue #2 gefunden.');
+    }
+
+    const payload = JSON.parse(jsonMatch[1]);
+    const incomingItems = Array.isArray(payload) ? payload : payload.items || [];
+    if (!incomingItems.length) {
+      throw new Error('Cloud-Bestand ist leer.');
+    }
+
+    const existingMap = new Map(batchItems.map((i) => [i.id, i]));
+    let mergedCount = 0;
+    incomingItems.forEach((it) => {
+      if (it && it.id) {
+        existingMap.set(it.id, it);
+        mergedCount++;
+      }
+    });
+
+    batchItems = Array.from(existingMap.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    await saveBatchToStorage();
+    renderBatchDashboard();
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (cloudSyncStatusText) cloudSyncStatusText.textContent = `✓ Zuletzt synchronisiert: Heute um ${timeStr} (${batchItems.length} Artikel im Speicher)`;
+    showToast(`✓ ${mergedCount} Artikel aus GitHub-Cloud synchronisiert!`);
+  } catch (err) {
+    if (cloudSyncStatusText) cloudSyncStatusText.textContent = `Fehler: ${err?.message || err}`;
+    showToast(`Cloud-Download fehlgeschlagen: ${err?.message || err}`);
+  }
+}
+
+if (btnCloudPushBatch) {
+  btnCloudPushBatch.addEventListener('click', cloudPushBatchToGitHub);
+}
+if (btnCloudPullBatch) {
+  btnCloudPullBatch.addEventListener('click', cloudPullBatchFromGitHub);
+}
+
 function renderBatchDashboard() {
   if (!batchItemsList) return;
+  updateBundleActionBar();
 
   const totalCount = batchItems.length;
   const doneItems = batchItems.filter((i) => i.status === 'done' && i.data);
@@ -3189,6 +3499,15 @@ function renderBatchDashboard() {
       const listingUrl = (item.listingUrl || '').trim();
       const isEditingLink = editingLinkForItemId === item.id;
       const isTextExpanded = expandedTextForItemId === item.id;
+      const isSelectedForBundle = selectedBatchItemIds.has(item.id);
+
+      const selectBtnHtml = item.status === 'done'
+        ? `<button type="button" data-action="toggle-select" data-id="${item.id}" class="px-2 py-0.5 rounded-full text-[10px] font-bold ${
+            isSelectedForBundle
+              ? 'bg-emerald-500 text-slate-950 ring-2 ring-emerald-300'
+              : 'bg-slate-800 text-slate-400 hover:text-white border border-white/10'
+          } transition">${isSelectedForBundle ? '☑️ Im Set' : '☐ Set'}</button>`
+        : '';
 
       const soldBadgeHtml = isSold
         ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/25 text-amber-300 border border-amber-500/40">💰 Verkauft${item.soldPrice ? ` (${item.soldPrice} €)` : ''}</span>`
@@ -3248,11 +3567,21 @@ function renderBatchDashboard() {
               </div>
             </div>
             <div class="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-white/5 text-[11px]">
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-1.5">
+                <span class="text-slate-400">Verkaufspreis:</span>
+                <input
+                  type="number"
+                  id="soldPriceInput_${item.id}"
+                  value="${Number(item.soldPrice || d.recommendedPrice || 0)}"
+                  class="w-16 rounded-lg bg-slate-900 border border-amber-500/40 px-2 py-1 text-xs font-bold text-amber-300 focus:outline-none"
+                  title="Tatsächlich erzielter Verkaufspreis in €"
+                />
+                <span class="text-slate-400">€</span>
                 ${
                   !isSold
-                    ? `<button type="button" data-action="mark-sold" data-id="${item.id}" class="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold">💰 Als Verkauft markieren</button>`
-                    : `<button type="button" data-action="unmark-sold" data-id="${item.id}" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">Verkauft-Status aufheben</button>`
+                    ? `<button type="button" data-action="mark-sold" data-id="${item.id}" class="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold transition">💰 Verkauft</button>`
+                    : `<button type="button" data-action="mark-sold" data-id="${item.id}" class="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-bold transition">Preis ändern</button>
+                       <button type="button" data-action="unmark-sold" data-id="${item.id}" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition">Aufheben</button>`
                 }
               </div>
               ${
@@ -3289,14 +3618,25 @@ function renderBatchDashboard() {
                   class="w-full rounded-xl bg-slate-900 border border-white/10 px-3 py-1.5 text-xs font-semibold text-white focus:border-emerald-500 focus:outline-none"
                 />
               </div>
-              <div class="sm:w-28">
+              <div class="sm:w-36">
                 <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Preis (€)</label>
-                <input
-                  type="number"
-                  id="inlinePrice_${item.id}"
-                  value="${Number(d.recommendedPrice || 0)}"
-                  class="w-full rounded-xl bg-slate-900 border border-white/10 px-3 py-1.5 text-xs font-bold text-emerald-400 focus:border-emerald-500 focus:outline-none"
-                />
+                <div class="flex items-center gap-1">
+                  <input
+                    type="number"
+                    id="inlinePrice_${item.id}"
+                    value="${Number(d.recommendedPrice || 0)}"
+                    class="w-full rounded-xl bg-slate-900 border border-white/10 px-3 py-1.5 text-xs font-bold text-emerald-400 focus:border-emerald-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    data-action="discount-10"
+                    data-id="${item.id}"
+                    class="px-2 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-[10px] font-bold shrink-0 transition"
+                    title="1-Klick Preis um 10% senken (-10%)"
+                  >
+                    📉 -10%
+                  </button>
+                </div>
               </div>
             </div>
             <div>
@@ -3332,6 +3672,7 @@ function renderBatchDashboard() {
             </div>
             <div class="flex-1 min-w-0 space-y-1">
               <div class="flex flex-wrap items-center gap-1.5">
+                ${selectBtnHtml}
                 ${soldBadgeHtml}
                 ${listedBadgeHtml}
                 ${badgeHtml}
@@ -3379,6 +3720,15 @@ function renderBatchDashboard() {
                 title="Als bei Kleinanzeigen eingestellt oder verkauft markieren & Link hinterlegen"
               >
                 <span>${isSold ? '💰 Verkauft' : isListed ? (listingUrl ? '🔗 Link' : '📢 Eingestellt') : '✅ Eingestellt'}</span>
+              </button>
+              <button
+                type="button"
+                data-action="save-photos"
+                data-id="${item.id}"
+                class="py-2 px-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-slate-200 border border-white/10 font-bold text-xs transition"
+                title="Fotos auf dem Handy speichern oder direkt teilen"
+              >
+                <span>🖼️ Fotos</span>
               </button>
               <button
                 type="button"
@@ -3437,8 +3787,37 @@ if (batchItemsList) {
 
     if (action === 'delete') {
       batchItems = batchItems.filter((i) => i.id !== id);
+      selectedBatchItemIds.delete(id);
+      updateBundleActionBar();
       saveBatchToStorage();
       renderBatchDashboard();
+      return;
+    }
+
+    if (action === 'toggle-select') {
+      if (selectedBatchItemIds.has(item.id)) {
+        selectedBatchItemIds.delete(item.id);
+      } else {
+        selectedBatchItemIds.add(item.id);
+      }
+      updateBundleActionBar();
+      renderBatchDashboard();
+      return;
+    }
+
+    if (action === 'save-photos') {
+      await shareOrDownloadItemImages(item);
+      return;
+    }
+
+    if (action === 'discount-10' && item.data) {
+      const curPrice = Number(item.data.recommendedPrice || 0);
+      const discount = Math.max(1, Math.round(curPrice * 0.10));
+      const newPrice = Math.max(1, curPrice - discount);
+      item.data.recommendedPrice = newPrice;
+      await saveBatchToStorage(item);
+      renderBatchDashboard();
+      showToast(`📉 Preis um 10% gesenkt (${curPrice} € → ${newPrice} €)!`);
       return;
     }
 
@@ -3502,14 +3881,16 @@ if (batchItemsList) {
     }
 
     if (action === 'mark-sold') {
+      const customPriceInput = document.getElementById(`soldPriceInput_${item.id}`);
+      const customPrice = customPriceInput ? Number(customPriceInput.value || 0) : Number(item.soldPrice || item.data?.recommendedPrice || 0);
       item.isSold = true;
       item.isListed = true;
-      item.soldAt = Date.now();
-      item.soldPrice = item.data?.recommendedPrice || 0;
+      item.soldAt = item.soldAt || Date.now();
+      item.soldPrice = customPrice;
       editingLinkForItemId = null;
       await saveBatchToStorage(item);
       renderBatchDashboard();
-      showToast('💰 Artikel als „Verkauft“ markiert!');
+      showToast(`💰 Artikel als „Verkauft“ (${customPrice} €) gespeichert!`);
       return;
     }
 
