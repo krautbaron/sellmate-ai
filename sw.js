@@ -1,9 +1,9 @@
 // Netzwerk zuerst, Cache nur als Offline-Fallback – so bekommt das Handy Updates ohne Strg+F5
-const CACHE_NAME = 'sellmate-pwa-v19';
+const CACHE_NAME = 'sellmate-pwa-v20';
 const ASSETS = [
   './',
   './index.html',
-  './app.js?v=19',
+  './app.js?v=20',
   './manifest.json',
   './icon.svg'
 ];

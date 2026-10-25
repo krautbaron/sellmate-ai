@@ -2,15 +2,18 @@
 <html lang="de" class="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#090d16" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="SellMate AI" />
-  <title>SellMate AI – Verkaufs-Assistent</title>
+  <title>SellMate AI – Smart Resale Assistant</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/svg+xml" href="icon.svg" />
   <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <script>
@@ -18,12 +21,15 @@
       darkMode: 'class',
       theme: {
         extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace']
+          },
           colors: {
-            brand: {
-              50: '#f0fdf4',
-              400: '#4ade80',
-              500: '#22c55e',
-              600: '#16a34a',
+            surface: {
+              950: '#090d16',
+              900: '#111827',
+              800: '#1e293b'
             }
           }
         }
@@ -33,7 +39,11 @@
   <style>
     body {
       -webkit-tap-highlight-color: transparent;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #090d16;
+      background-image:
+        radial-gradient(at 15% 0%, rgba(16, 185, 129, 0.11) 0px, transparent 50%),
+        radial-gradient(at 85% 5%, rgba(20, 184, 166, 0.08) 0px, transparent 45%);
+      background-attachment: fixed;
     }
     .no-scrollbar::-webkit-scrollbar {
       display: none;
@@ -42,92 +52,120 @@
       -ms-overflow-style: none;
       scrollbar-width: none;
     }
+    .glass-card {
+      background: rgba(17, 24, 39, 0.78);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .glass-header {
+      background: rgba(9, 13, 22, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .cta-gradient {
+      background: linear-gradient(135deg, #10b981 0%, #0d9488 100%);
+    }
+    .cta-gradient:hover {
+      background: linear-gradient(135deg, #34d399 0%, #14b8a6 100%);
+    }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen pb-24 selection:bg-emerald-500 selection:text-white">
+<body class="text-slate-100 min-h-screen pb-28 selection:bg-emerald-500 selection:text-white antialiased">
 
-  <!-- Top Header -->
-  <header class="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3">
-    <div class="max-w-3xl mx-auto flex items-center justify-between">
-      <div class="flex items-center gap-2.5">
-        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-          <i data-lucide="sparkles" class="w-5 h-5 text-white"></i>
+  <!-- ===================================================================== -->
+  <!-- STICKY TOP HEADER & SEGMENTED NAVIGATION                              -->
+  <!-- ===================================================================== -->
+  <header class="sticky top-0 z-30 glass-header px-4 pt-3 pb-3">
+    <div class="max-w-2xl mx-auto space-y-3">
+      <div class="flex items-center justify-between">
+        <!-- Brand Logo -->
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-2xl cta-gradient flex items-center justify-center shadow-lg shadow-emerald-500/25 ring-1 ring-white/15">
+            <i data-lucide="sparkles" class="w-4 h-4 text-white"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-1.5">
+              <h1 class="font-extrabold text-base tracking-tight text-white">SellMate</h1>
+              <span class="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">AI</span>
+            </div>
+            <p class="text-[11px] text-slate-400 leading-none mt-0.5">Foto scannen ➔ Wert & Inserat in Sekunden</p>
+          </div>
         </div>
-        <div>
-          <h1 class="font-bold text-base leading-tight tracking-tight">SellMate AI</h1>
-          <p class="text-[11px] text-slate-400">Multi-Plattform Verkaufs-Assistent & Agent</p>
+
+        <!-- Status & Settings -->
+        <div class="flex items-center gap-2">
+          <button
+            id="btnUnlockOrStatus"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-white/10 hover:border-white/20 text-[11px] font-semibold text-slate-300 transition active:scale-95"
+            title="KI-Status / Tresor entsperren"
+          >
+            <span id="apiKeyStatusDot" class="w-2 h-2 rounded-full bg-amber-400"></span>
+            <span id="activeProviderHeaderLabel">Verbinden</span>
+          </button>
+          <button
+            id="btnAdminPanel"
+            class="w-9 h-9 rounded-full bg-slate-900/90 border border-white/10 hover:border-white/20 flex items-center justify-center text-slate-300 hover:text-white transition active:scale-95"
+            title="Einstellungen, API-Keys & Handy-Sync"
+          >
+            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+          </button>
         </div>
       </div>
 
-      <div class="flex items-center gap-2">
-        <!-- Status-Pille (zeigt nur ob KI bereit ist, öffnet bei fehlendem Key den PIN-Unlock oder Admin) -->
-        <button id="btnUnlockOrStatus" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-[11px] font-medium text-slate-300 transition" title="KI-Status / Tresor entsperren">
-          <span id="apiKeyStatusDot" class="w-2 h-2 rounded-full bg-amber-400"></span>
-          <span id="activeProviderHeaderLabel">Nicht verbunden</span>
+      <!-- Segmented Mode Switcher -->
+      <div class="p-1 rounded-2xl bg-slate-900/90 border border-white/5 flex gap-1">
+        <button
+          type="button"
+          id="tabBtnBatch"
+          class="flex-1 py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20"
+        >
+          <i data-lucide="package-search" class="w-4 h-4"></i>
+          <span>Meine Artikel</span>
+          <span id="batchCountBadge" class="px-1.5 py-0.5 text-[10px] rounded-full bg-slate-950/20 text-slate-950 font-extrabold">0</span>
         </button>
-        <!-- Dezenter Admin-Button -->
-        <button id="btnAdminPanel" class="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition" title="Admin-Oberfläche (API-Keys, Prompts & Handy-Sync)">
-          <i data-lucide="shield-Alert" class="w-4 h-4 hidden"></i>
-          <i data-lucide="settings" class="w-4 h-4"></i>
+        <button
+          type="button"
+          id="tabBtnSingle"
+          class="flex-1 py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all text-slate-400 hover:text-slate-200"
+        >
+          <i data-lucide="wand-2" class="w-4 h-4"></i>
+          <span>Einzel-Inserat</span>
         </button>
       </div>
-    </div>
-
-    <!-- Mode Switcher Tabs: Einzel-Scanner vs. Batch-Agent & Dashboard -->
-    <div class="max-w-3xl mx-auto pt-3 flex gap-2">
-      <button
-        type="button"
-        id="tabBtnBatch"
-        class="flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20"
-      >
-        <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
-        <span>Batch-Agent & Dashboard</span>
-        <span id="batchCountBadge" class="px-1.5 py-0.5 text-[10px] rounded-full bg-slate-950/20 text-slate-950 font-extrabold">0</span>
-      </button>
-      <button
-        type="button"
-        id="tabBtnSingle"
-        class="flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition bg-slate-800 text-slate-300 hover:bg-slate-700"
-      >
-        <i data-lucide="camera" class="w-4 h-4"></i>
-        <span>Einzel-Artikel (Detail-Check)</span>
-      </button>
     </div>
   </header>
 
   <!-- ===================================================================== -->
-  <!-- VIEW 1: BATCH-AGENT & VERKAUFS-DASHBOARD (NEU)                        -->
+  <!-- VIEW 1: MEINE ARTIKEL (BATCH-SCANNER & VERKAUFS-DASHBOARD)            -->
   <!-- ===================================================================== -->
-  <section id="batchDashboardView" class="max-w-3xl mx-auto px-4 pt-4 space-y-5">
+  <section id="batchDashboardView" class="max-w-2xl mx-auto px-4 pt-4 space-y-4">
 
-    <!-- Batch Upload & Agent Control Box -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3.5">
-      <div class="flex items-start justify-between gap-2">
-        <div>
-          <h2 class="text-sm font-bold text-white flex items-center gap-2">
-            <i data-lucide="bot" class="w-4 h-4 text-emerald-400"></i>
-            <span>Hintergrund-Agent: Mehrere Dinge auf einmal scannen</span>
-          </h2>
-          <p class="text-xs text-slate-400 mt-0.5">
-            Mach einfach nacheinander Fotos von verschiedenen Artikeln (oder wähle 5–30 Bilder aus der Galerie). Der Agent analysiert jedes Teil im Hintergrund auf Marktwert, Verkaufschance & Rarität!
-          </p>
+    <!-- Hero Scanner Action Card -->
+    <div class="glass-card rounded-3xl p-4 sm:p-5 space-y-3.5 shadow-xl">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">Neuen Artikel erfassen</h2>
         </div>
-        <button id="btnClearBatchAll" class="hidden text-xs text-rose-400 hover:text-rose-300 shrink-0 flex items-center gap-1">
-          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Liste leeren
+        <button id="btnClearBatchAll" class="hidden text-[11px] font-medium text-rose-400/90 hover:text-rose-300 flex items-center gap-1 transition">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          <span>Alle löschen</span>
         </button>
       </div>
 
-      <!-- Kamera & Multi-Galerie Buttons für Batch -->
-      <div class="grid grid-cols-2 gap-2.5">
-        <label class="cursor-pointer flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-600/20 transition">
-          <i data-lucide="camera" class="w-5 h-5"></i>
-          <span>Neuen Artikel fotografieren</span>
+      <!-- Primary Camera & Gallery Actions -->
+      <div class="grid grid-cols-5 gap-2.5">
+        <label class="col-span-3 cursor-pointer flex items-center justify-center gap-2.5 py-3.5 px-4 rounded-2xl cta-gradient active:scale-[0.98] text-slate-950 font-extrabold text-sm shadow-lg shadow-emerald-500/20 transition">
+          <i data-lucide="camera" class="w-5 h-5 stroke-[2.5]"></i>
+          <span>Kamera starten</span>
           <input type="file" id="batchCameraInput" accept="image/*" capture="environment" multiple class="hidden" />
         </label>
 
-        <label class="cursor-pointer flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-slate-100 font-bold text-xs sm:text-sm border border-slate-700 transition">
-          <i data-lucide="layers" class="w-5 h-5 text-emerald-400"></i>
-          <span>Galerie (Mehrere Artikel)</span>
+        <label class="col-span-2 cursor-pointer flex items-center justify-center gap-2 py-3.5 px-3 rounded-2xl bg-slate-800/90 hover:bg-slate-800 active:scale-[0.98] text-slate-200 font-bold text-xs sm:text-sm border border-white/10 transition">
+          <i data-lucide="images" class="w-4 h-4 text-emerald-400 shrink-0"></i>
+          <span class="truncate">Galerie</span>
           <input type="file" id="batchGalleryInput" accept="image/*" multiple class="hidden" />
         </label>
       </div>
@@ -135,124 +173,118 @@
       <!-- Versteckter Kamera-Input zum Nachreichen eines Typenschild-Fotos zu einer bestehenden Karte -->
       <input type="file" id="batchAddPhotoToItemInput" accept="image/*" capture="environment" multiple class="hidden" />
 
-      <!-- Multi-Foto Sammel-Box für den aktuellen Artikel (z.B. 1. Foto Gerät + 2. Foto Typenschild) -->
-      <div id="batchStagingBox" class="hidden bg-slate-950 border-2 border-emerald-500/60 rounded-2xl p-3.5 space-y-3 shadow-lg shadow-emerald-500/10">
+      <!-- Multi-Foto Sammel-Dock (erscheint nach dem 1. Kamera-Foto für Typenschild/Rückseite) -->
+      <div id="batchStagingBox" class="hidden bg-slate-950/90 border border-emerald-500/50 rounded-2xl p-3.5 space-y-3 shadow-lg">
         <div class="flex items-center justify-between">
-          <div>
-            <div class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-              <span>📸 Aktueller Artikel (<span id="batchStagingCount">1</span> Foto)</span>
-            </div>
-            <p class="text-[11px] text-slate-400">Noch ein Foto vom Typenschild/Rückseite dazunehmen oder direkt analysieren?</p>
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold text-[11px]">
+              <span id="batchStagingCount">1</span> Foto bereit
+            </span>
+            <span class="text-xs text-slate-300 font-medium">Noch Typenschild dazunehmen?</span>
           </div>
-          <button type="button" id="btnClearStaging" class="text-[11px] text-rose-400 hover:text-rose-300 px-2 py-1">
-            Verwerfen
+          <button type="button" id="btnClearStaging" class="text-[11px] text-slate-400 hover:text-rose-400 px-2 py-0.5">
+            Abbrechen
           </button>
         </div>
 
         <div id="batchStagingGrid" class="flex gap-2.5 overflow-x-auto pb-1 no-scrollbar"></div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <label class="cursor-pointer py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-emerald-300 border border-emerald-500/40 font-bold text-xs flex items-center justify-center gap-1.5 transition">
-            <i data-lucide="plus-circle" class="w-4 h-4"></i>
-            <span>+ 2. Foto / Typenschild aufnehmen</span>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="cursor-pointer py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-emerald-300 border border-emerald-500/30 font-bold text-xs flex items-center justify-center gap-1.5 transition">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>2. Foto / Typenschild</span>
             <input type="file" id="batchStagingAddCameraInput" accept="image/*" capture="environment" multiple class="hidden" />
           </label>
 
           <button
             type="button"
             id="btnCommitStagingItem"
-            class="py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-extrabold text-xs shadow-md shadow-emerald-500/20 flex items-center justify-center gap-1.5 transition"
+            class="py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-extrabold text-xs shadow-md shadow-emerald-500/20 flex items-center justify-center gap-1.5 transition"
           >
-            <i data-lucide="sparkles" class="w-4 h-4"></i>
-            <span>Fertig ➔ Artikel jetzt analysieren</span>
+            <i data-lucide="check" class="w-4 h-4 stroke-[2.5]"></i>
+            <span>Jetzt analysieren</span>
           </button>
         </div>
       </div>
 
-      <!-- Agent Progress Bar (sichtbar wenn Hintergrund-Agent läuft) -->
-      <div id="batchAgentStatusBox" class="hidden bg-slate-950 border border-emerald-500/40 rounded-xl p-3 space-y-2">
+      <!-- Live Background Agent Progress Bar -->
+      <div id="batchAgentStatusBox" class="hidden bg-slate-950/80 border border-emerald-500/30 rounded-2xl p-3 space-y-2">
         <div class="flex items-center justify-between text-xs">
-          <div class="flex items-center gap-2 font-semibold text-emerald-400">
-            <i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>
-            <span id="batchAgentStatusText">Agent arbeitet im Hintergrund...</span>
+          <div class="flex items-center gap-2 font-semibold text-emerald-400 truncate pr-2">
+            <i data-lucide="loader-2" class="w-4 h-4 animate-spin shrink-0"></i>
+            <span id="batchAgentStatusText" class="truncate">KI prüft Artikel & Marktpreise...</span>
           </div>
-          <span id="batchAgentProgressNumbers" class="font-mono text-slate-300">0 / 0</span>
+          <span id="batchAgentProgressNumbers" class="font-mono text-[11px] text-slate-400 shrink-0">0 / 0</span>
         </div>
-        <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-          <div id="batchAgentProgressBar" class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300" style="width: 0%"></div>
+        <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+          <div id="batchAgentProgressBar" class="h-full cta-gradient transition-all duration-300" style="width: 0%"></div>
         </div>
       </div>
     </div>
 
-    <!-- KPI Summary Cards (Potenzieller Gesamterlös, Top-Seller, Raritäten) -->
-    <div id="batchStatsGrid" class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5">
+    <!-- Compact Portfolio Summary Strip -->
+    <div id="batchStatsGrid" class="grid grid-cols-4 gap-2">
+      <div class="col-span-2 glass-card rounded-2xl p-3.5 flex flex-col justify-between">
         <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Geschätzter Gesamtwert</div>
-        <div id="statTotalValue" class="text-lg sm:text-xl font-extrabold text-emerald-400 mt-1">0 €</div>
-        <div id="statPriceRange" class="text-[10px] text-slate-500">Spanne: 0 – 0 €</div>
+        <div class="flex items-baseline gap-2 mt-1">
+          <div id="statTotalValue" class="text-2xl font-extrabold text-emerald-400 tracking-tight">0 €</div>
+        </div>
+        <div id="statPriceRange" class="text-[11px] text-slate-400 mt-0.5 truncate">Spanne: 0 – 0 €</div>
       </div>
 
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5">
-        <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">🔥 Schnell-Verkäufer</div>
-        <div id="statHighDemand" class="text-lg sm:text-xl font-extrabold text-white mt-1">0</div>
-        <div class="text-[10px] text-emerald-400">Hohe Nachfrage</div>
+      <div class="glass-card rounded-2xl p-3 flex flex-col justify-between text-center">
+        <div class="text-[10px] font-bold text-slate-400">🔥 Gefragt</div>
+        <div id="statHighDemand" class="text-xl font-extrabold text-white my-0.5">0</div>
+        <div class="text-[10px] text-emerald-400 font-medium">Schnell-Dreher</div>
       </div>
 
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5">
-        <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">💎 Raritäten / Sammler</div>
-        <div id="statRarities" class="text-lg sm:text-xl font-extrabold text-amber-400 mt-1">0</div>
-        <div class="text-[10px] text-amber-300/80">Einzeln verkaufen!</div>
-      </div>
-
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5">
-        <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">📦 Schwer verkäuflich</div>
-        <div id="statLowDemand" class="text-lg sm:text-xl font-extrabold text-slate-300 mt-1">0</div>
-        <div class="text-[10px] text-slate-500">Eher Konvolut/Spende</div>
+      <div class="glass-card rounded-2xl p-3 flex flex-col justify-between text-center">
+        <div class="text-[10px] font-bold text-slate-400">💎 Rarität</div>
+        <div id="statRarities" class="text-xl font-extrabold text-amber-400 my-0.5">0</div>
+        <div id="statLowDemand" class="hidden">0</div>
+        <div class="text-[10px] text-amber-300/80 font-medium">Sammler</div>
       </div>
     </div>
 
-    <!-- Filter & Sortier-Leiste -->
-    <div id="batchFilterBar" class="hidden flex flex-wrap items-center justify-between gap-2 bg-slate-900/70 border border-slate-800 rounded-xl p-2.5">
-      <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-        <button type="button" data-filter="all" class="batch-filter-btn active px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
+    <!-- Clean Filter Pills & Sort Bar -->
+    <div id="batchFilterBar" class="hidden flex items-center justify-between gap-2 pt-1">
+      <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+        <button type="button" data-filter="all" class="batch-filter-btn active px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-500 text-slate-950 shrink-0 transition">
           Alle
         </button>
-        <button type="button" data-filter="open" class="batch-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 shrink-0">
-          📋 Noch offen
+        <button type="button" data-filter="open" class="batch-filter-btn px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 border border-white/10 text-slate-300 hover:text-white shrink-0 transition">
+          📋 Offen
         </button>
-        <button type="button" data-filter="listed" class="batch-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 shrink-0">
+        <button type="button" data-filter="listed" class="batch-filter-btn px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 border border-white/10 text-slate-300 hover:text-white shrink-0 transition">
           📢 Eingestellt
         </button>
-        <button type="button" data-filter="high" class="batch-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 shrink-0">
-          🔥 Gut verkäuflich
+        <button type="button" data-filter="high" class="batch-filter-btn px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 border border-white/10 text-slate-300 hover:text-white shrink-0 transition">
+          🔥 Top-Seller
         </button>
-        <button type="button" data-filter="rarity" class="batch-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 shrink-0">
+        <button type="button" data-filter="rarity" class="batch-filter-btn px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 border border-white/10 text-slate-300 hover:text-white shrink-0 transition">
           💎 Raritäten
         </button>
-        <button type="button" data-filter="low" class="batch-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 shrink-0">
-          🐢 Weniger gefragt
+        <button type="button" data-filter="low" class="batch-filter-btn px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 border border-white/10 text-slate-300 hover:text-white shrink-0 transition">
+          📦 Konvolut
         </button>
       </div>
 
-      <div class="flex items-center gap-1.5">
-        <span class="text-[11px] text-slate-400">Sortieren:</span>
-        <select id="batchSortSelect" class="rounded-lg bg-slate-950 border border-slate-800 px-2.5 py-1 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none">
-          <option value="score_desc">Beste Verkaufschance zuerst</option>
-          <option value="price_desc">Höchster Preis zuerst</option>
-          <option value="price_asc">Niedrigster Preis zuerst</option>
-          <option value="newest">Neueste zuerst</option>
-        </select>
-      </div>
+      <select id="batchSortSelect" class="rounded-full bg-slate-900 border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-300 focus:border-emerald-500 focus:outline-none shrink-0">
+        <option value="score_desc">Beste Chance</option>
+        <option value="price_desc">Preis ↓</option>
+        <option value="price_asc">Preis ↑</option>
+        <option value="newest">Neueste</option>
+      </select>
     </div>
 
     <!-- Empty State -->
-    <div id="batchEmptyState" class="bg-slate-900/50 border border-dashed border-slate-800 rounded-2xl p-8 text-center space-y-2">
-      <div class="w-12 h-12 rounded-2xl bg-slate-800/80 text-emerald-400 mx-auto flex items-center justify-center">
-        <i data-lucide="ScanSearch" class="w-6 h-6"></i>
+    <div id="batchEmptyState" class="glass-card rounded-3xl p-8 text-center space-y-2.5">
+      <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center">
+        <i data-lucide="camera" class="w-6 h-6"></i>
       </div>
-      <h3 class="text-sm font-bold text-slate-200">Noch keine Artikel im Dashboard</h3>
-      <p class="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-        Wähle oben <strong>„Viele Fotos auswählen“</strong> oder fotografiere mehrere Gegenstände nacheinander. Der KI-Agent startet sofort im Hintergrund und sortiert dir alles nach Verkaufschance und Ertrag.
+      <h3 class="text-sm font-bold text-white">Starte deinen ersten Scan</h3>
+      <p class="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
+        Tippe oben auf <strong>„Kamera starten“</strong>. Du kannst pro Artikel auch ein 2. Foto vom Typenschild aufnehmen – die KI ermittelt sofort Modell, Marktpreis und Verkaufstext.
       </p>
     </div>
 
@@ -262,209 +294,213 @@
   </section>
 
   <!-- ===================================================================== -->
-  <!-- VIEW 2: EINZEL-ARTIKEL SCANNER (BESTEHENDE ANSICHT)                   -->
+  <!-- VIEW 2: EINZEL-INSERAT & DETAIL-EDITOR                                -->
   <!-- ===================================================================== -->
-  <main id="singleItemView" class="hidden max-w-xl mx-auto px-4 pt-4 space-y-5">
+  <main id="singleItemView" class="hidden max-w-2xl mx-auto px-4 pt-4 space-y-4">
 
-    <!-- 1. Plattform Auswahl -->
-    <section class="space-y-2">
-      <div class="flex items-center justify-between">
-        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">1. Plattform wählen</label>
-        <span id="platformBadge" class="text-xs text-emerald-400 font-medium">Reiner Text ohne Markdown</span>
-      </div>
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2" id="platformSelector">
-        <button type="button" data-platform="kleinanzeigen" class="platform-btn active flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all bg-emerald-500/15 border-emerald-500 text-white">
-          <div class="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0 font-bold text-sm">K</div>
-          <div class="overflow-hidden">
-            <div class="text-xs font-semibold truncate">Kleinanzeigen</div>
-            <div class="text-[10px] text-slate-400 truncate">Raritäten & Plaintext</div>
-          </div>
-        </button>
+    <!-- Unified Input Card (Plattform + Fotos + Notizen in einer klaren Karte) -->
+    <section class="glass-card rounded-3xl p-4 sm:p-5 space-y-4 shadow-xl">
 
-        <button type="button" data-platform="vinted" class="platform-btn flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700">
-          <div class="w-8 h-8 rounded-lg bg-teal-500/20 flex items-center justify-center text-teal-400 shrink-0 font-bold text-sm">V</div>
-          <div class="overflow-hidden">
-            <div class="text-xs font-semibold truncate">Vinted</div>
-            <div class="text-[10px] text-slate-400 truncate">Mode, Marke & Tags</div>
-          </div>
-        </button>
+      <!-- 1. Kompakte Plattform-Pills -->
+      <div class="space-y-2">
+        <div class="flex items-center justify-between">
+          <label class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Ziel-Plattform</label>
+          <span id="platformBadge" class="text-[11px] text-emerald-400 font-medium">Plaintext ohne Markdown</span>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2" id="platformSelector">
+          <button type="button" data-platform="kleinanzeigen" class="platform-btn active flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all bg-emerald-500/15 border-emerald-500 text-white">
+            <div class="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0 font-extrabold text-xs">K</div>
+            <div class="overflow-hidden">
+              <div class="text-xs font-bold truncate">Kleinanzeigen</div>
+            </div>
+          </button>
 
-        <button type="button" data-platform="willhaben" class="platform-btn flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700">
-          <div class="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400 shrink-0 font-bold text-sm">W</div>
-          <div class="overflow-hidden">
-            <div class="text-xs font-semibold truncate">Willhaben</div>
-            <div class="text-[10px] text-slate-400 truncate">AT Marktplatz</div>
-          </div>
-        </button>
+          <button type="button" data-platform="vinted" class="platform-btn flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all bg-slate-900/90 border-white/10 text-slate-300 hover:border-white/20">
+            <div class="w-7 h-7 rounded-lg bg-teal-500/20 flex items-center justify-center text-teal-400 shrink-0 font-extrabold text-xs">V</div>
+            <div class="overflow-hidden">
+              <div class="text-xs font-bold truncate">Vinted</div>
+            </div>
+          </button>
 
-        <button type="button" data-platform="ricardo_shpock" class="platform-btn flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700">
-          <div class="w-8 h-8 rounded-lg bg-orange-500/20 flex items-center justify-center text-orange-400 shrink-0 font-bold text-sm">R</div>
-          <div class="overflow-hidden">
-            <div class="text-xs font-semibold truncate">Ricardo / Shpock</div>
-            <div class="text-[10px] text-slate-400 truncate">Auktion & Fixpreis</div>
-          </div>
-        </button>
-      </div>
-    </section>
+          <button type="button" data-platform="willhaben" class="platform-btn flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all bg-slate-900/90 border-white/10 text-slate-300 hover:border-white/20">
+            <div class="w-7 h-7 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400 shrink-0 font-extrabold text-xs">W</div>
+            <div class="overflow-hidden">
+              <div class="text-xs font-bold truncate">Willhaben</div>
+            </div>
+          </button>
 
-    <!-- 2. Fotos aufnehmen / hochladen -->
-    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">2. Artikel-Fotos (inkl. Typenschild)</label>
-        <button id="btnClearImages" class="hidden text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1">
-          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Alle löschen
-        </button>
-      </div>
-
-      <!-- Kamera & Galerie Buttons (Mobile First) -->
-      <div class="grid grid-cols-2 gap-2.5">
-        <label class="cursor-pointer flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-semibold text-sm shadow-lg shadow-emerald-600/20 transition">
-          <i data-lucide="camera" class="w-5 h-5"></i>
-          <span>Kamera</span>
-          <input type="file" id="cameraInput" accept="image/*" capture="environment" multiple class="hidden" />
-        </label>
-
-        <label class="cursor-pointer flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-slate-200 font-semibold text-sm border border-slate-700 transition">
-          <i data-lucide="images" class="w-5 h-5 text-emerald-400"></i>
-          <span>Galerie / Dateien</span>
-          <input type="file" id="galleryInput" accept="image/*" multiple class="hidden" />
-        </label>
-      </div>
-
-      <!-- Image Previews -->
-      <div id="imagePreviewContainer" class="hidden pt-2">
-        <div id="imageGrid" class="flex gap-2.5 overflow-x-auto pb-1 no-scrollbar"></div>
-      </div>
-      <p class="text-[11px] text-slate-400">
-        Tipp: Fotografiere auch Rückseiten, Modellnummern, Etiketten oder sichtbare Gebrauchsspuren. Du kannst auch Bilder per <kbd class="px-1.5 py-0.5 bg-slate-800 rounded text-slate-300">Strg+V</kbd> einfügen.
-      </p>
-    </section>
-
-    <!-- 3. Optionale Zusatzinfos -->
-    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <label for="userNotes" class="text-xs font-semibold uppercase tracking-wider text-slate-400">3. Notizen / Details (Optional)</label>
-        <div class="flex items-center gap-2">
-          <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer select-none">
-            <input type="checkbox" id="toggleGoogleSearch" checked class="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500" />
-            <span>Live Web-Recherche (Tavily)</span>
-          </label>
-          <button
-            type="button"
-            id="btnTavilyQuickStatus"
-            class="px-2 py-0.5 rounded-full text-[10px] font-bold border transition"
-          >
-            Prüfe Key...
+          <button type="button" data-platform="ricardo_shpock" class="platform-btn flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all bg-slate-900/90 border-white/10 text-slate-300 hover:border-white/20">
+            <div class="w-7 h-7 rounded-lg bg-orange-500/20 flex items-center justify-center text-orange-400 shrink-0 font-extrabold text-xs">R</div>
+            <div class="overflow-hidden">
+              <div class="text-xs font-bold truncate">Ricardo</div>
+            </div>
           </button>
         </div>
       </div>
 
-      <textarea
-        id="userNotes"
-        rows="2"
-        placeholder="z.B. 'Funktioniert einwandfrei, OVP vorhanden, nur komplett oder einzeln', oder Artikelname falls ohne Foto..."
-        class="w-full rounded-xl bg-slate-950 border border-slate-800 focus:border-emerald-500 focus:outline-none p-3 text-sm text-slate-100 placeholder-slate-500 resize-y"
-      ></textarea>
+      <!-- 2. Fotos aufnehmen / hochladen -->
+      <div class="space-y-2.5 pt-1 border-t border-white/5">
+        <div class="flex items-center justify-between">
+          <label class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Artikel-Fotos (Gerät & Typenschild)</label>
+          <button id="btnClearImages" class="hidden text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Fotos leeren
+          </button>
+        </div>
 
-      <!-- Generate Button -->
-      <button
-        id="btnGenerate"
-        class="w-full py-3.5 px-5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 active:scale-[0.99] text-white font-bold text-sm shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <i data-lucide="wand-2" class="w-5 h-5"></i>
-        <span>Artikel analysieren & Text erstellen</span>
-      </button>
+        <div class="grid grid-cols-5 gap-2.5">
+          <label class="col-span-3 cursor-pointer flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-white font-bold text-xs sm:text-sm border border-white/10 transition">
+            <i data-lucide="camera" class="w-4 h-4 text-emerald-400"></i>
+            <span>Foto aufnehmen</span>
+            <input type="file" id="cameraInput" accept="image/*" capture="environment" multiple class="hidden" />
+          </label>
+
+          <label class="col-span-2 cursor-pointer flex items-center justify-center gap-2 py-3 px-3 rounded-2xl bg-slate-900/90 hover:bg-slate-800 active:scale-[0.98] text-slate-300 font-semibold text-xs sm:text-sm border border-white/10 transition">
+            <i data-lucide="images" class="w-4 h-4 text-emerald-400"></i>
+            <span>Galerie</span>
+            <input type="file" id="galleryInput" accept="image/*" multiple class="hidden" />
+          </label>
+        </div>
+
+        <!-- Image Previews -->
+        <div id="imagePreviewContainer" class="hidden pt-1">
+          <div id="imageGrid" class="flex gap-2.5 overflow-x-auto pb-1 no-scrollbar"></div>
+        </div>
+      </div>
+
+      <!-- 3. Optionale Zusatzinfos & Live-Web-Search -->
+      <div class="space-y-2.5 pt-1 border-t border-white/5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <label for="userNotes" class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Zusatznotiz (Optional)</label>
+          <div class="flex items-center gap-2">
+            <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer select-none">
+              <input type="checkbox" id="toggleGoogleSearch" checked class="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500" />
+              <span>Live-Websuche</span>
+            </label>
+            <button
+              type="button"
+              id="btnTavilyQuickStatus"
+              class="px-2 py-0.5 rounded-full text-[10px] font-bold border transition"
+            >
+              Prüfe...
+            </button>
+          </div>
+        </div>
+
+        <textarea
+          id="userNotes"
+          rows="2"
+          placeholder="z.B. 'OVP vorhanden, funktioniert top' oder Modellname..."
+          class="w-full rounded-2xl bg-slate-950/90 border border-white/10 focus:border-emerald-500 focus:outline-none p-3 text-sm text-slate-100 placeholder-slate-500 resize-y"
+        ></textarea>
+
+        <button
+          id="btnGenerate"
+          class="w-full py-3.5 px-5 rounded-2xl cta-gradient active:scale-[0.99] text-slate-950 font-extrabold text-sm shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <i data-lucide="sparkles" class="w-5 h-5 stroke-[2.5]"></i>
+          <span>Artikel analysieren & Inserat erstellen</span>
+        </button>
+      </div>
     </section>
 
     <!-- Loading Indicator + Live-Timing-Konsole -->
-    <section id="loadingSection" class="hidden bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+    <section id="loadingSection" class="hidden glass-card rounded-3xl p-5 space-y-3">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <div class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 shrink-0">
+          <div class="inline-flex items-center justify-center w-10 h-10 rounded-2xl bg-emerald-500/15 text-emerald-400 shrink-0">
             <i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i>
           </div>
           <div class="text-left">
-            <h3 class="font-semibold text-sm text-slate-200">KI analysiert Artikel & prüft Raritäten-Preise...</h3>
+            <h3 class="font-bold text-sm text-white">KI prüft Artikel & Marktpreise...</h3>
             <p class="text-xs text-emerald-400 font-medium" id="loadingSubtext">Starte Turbo-Pipeline...</p>
           </div>
         </div>
-        <span id="loadingTimerBadge" class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 font-mono text-xs text-emerald-400 font-bold shrink-0">0.0s</span>
+        <span id="loadingTimerBadge" class="px-2.5 py-1 rounded-xl bg-slate-950 border border-white/10 font-mono text-xs text-emerald-400 font-bold shrink-0">0.0s</span>
       </div>
-      <div id="loadingLiveLogBox" class="bg-slate-950 border border-slate-800/90 rounded-xl p-3 font-mono text-[11px] text-slate-300 max-h-44 overflow-y-auto space-y-1 text-left"></div>
+      <div id="loadingLiveLogBox" class="bg-slate-950/90 border border-white/5 rounded-2xl p-3 font-mono text-[11px] text-slate-300 max-h-40 overflow-y-auto space-y-1 text-left"></div>
     </section>
 
     <!-- Error Message -->
-    <section id="errorSection" class="hidden bg-rose-950/50 border border-rose-800/80 rounded-2xl p-4 text-rose-200 text-sm space-y-2">
+    <section id="errorSection" class="hidden bg-rose-950/60 border border-rose-500/40 rounded-3xl p-4 text-rose-200 text-sm space-y-2">
       <div class="flex items-start gap-2.5">
         <i data-lucide="alert-triangle" class="w-5 h-5 text-rose-400 shrink-0 mt-0.5"></i>
         <div class="space-y-1 flex-1">
-          <div class="font-semibold">Fehler bei der Analyse</div>
-          <p id="errorText" class="text-xs text-rose-300 leading-relaxed whitespace-pre-line"></p>
+          <div class="font-bold">Hinweis bei der Analyse</div>
+          <p id="errorText" class="text-xs text-rose-200/90 leading-relaxed whitespace-pre-line"></p>
         </div>
       </div>
     </section>
 
-    <!-- Ausklappbare Diagnose-Logs & Zeitmessung (standardmäßig aufgeklappt für volle Transparenz) -->
-    <details id="diagnosticsPanel" open class="hidden bg-slate-900/70 border border-slate-800 rounded-2xl p-3.5 text-xs text-slate-300">
+    <!-- Diagnose-Logs (kompakt einklappbar) -->
+    <details id="diagnosticsPanel" class="hidden glass-card rounded-2xl p-3 text-xs text-slate-300">
       <summary class="cursor-pointer font-semibold text-slate-300 flex items-center justify-between select-none">
         <span class="flex items-center gap-2">
           <i data-lucide="terminal" class="w-4 h-4 text-emerald-400"></i>
-          <span>📋 Diagnose-Logs & Zeitmessung</span>
-          <span id="diagnosticsSummaryBadge" class="px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-800 text-emerald-400"></span>
+          <span>Diagnose-Protokoll</span>
+          <span id="diagnosticsSummaryBadge" class="px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-900 text-emerald-400"></span>
         </span>
         <button type="button" id="btnCopyLogs" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 font-medium">
-          Logs kopieren
+          Kopieren
         </button>
       </summary>
-      <div id="diagnosticsLogContent" class="mt-2.5 bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-[11px] text-slate-300 max-h-60 overflow-y-auto space-y-1"></div>
+      <div id="diagnosticsLogContent" class="mt-2.5 bg-slate-950 border border-white/5 rounded-xl p-3 font-mono text-[11px] text-slate-300 max-h-52 overflow-y-auto space-y-1"></div>
     </details>
 
     <!-- Results Section -->
     <section id="resultSection" class="hidden space-y-4">
 
-      <!-- Raritäten & Preis-Check Card -->
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
-        <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+      <!-- 1. Schnell-Inserat & Copy-All Action Bar (ganz oben für sofortigen Zugriff am Handy) -->
+      <div class="bg-gradient-to-br from-emerald-950/80 via-slate-900 to-slate-900 border border-emerald-500/40 rounded-3xl p-4 sm:p-5 space-y-3 shadow-xl">
+        <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <i data-lucide="gem" class="w-4 h-4 text-amber-400"></i>
-            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">Preis- & Markteinschätzung (Raritäten-Check)</h2>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <span id="usedModelBadge" class="px-2 py-0.5 text-[10px] font-mono bg-slate-800 text-slate-400 rounded-full"></span>
-            <span id="rarityWarningBadge" class="hidden px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full">
-              Sammler-Hinweis!
-            </span>
+            <div class="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+              <i data-lucide="rocket" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h2 class="text-xs font-extrabold uppercase tracking-wider text-emerald-300">Fertig zum Inserieren</h2>
+              <p class="text-[11px] text-slate-400">Kopiert Preis, Text & Titel in deine Tastatur-Zwischenablage</p>
+            </div>
           </div>
         </div>
-        <div id="priceAnalysisContent" class="text-sm text-slate-200 whitespace-pre-line leading-relaxed"></div>
 
-        <!-- Quick-Correction Bar falls die Bilderkennung daneben lag -->
-        <div class="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-          <input
-            type="text"
-            id="quickCorrectionInput"
-            placeholder="Falsch erkannt? Kurz korrigieren (z.B. 'Das ist ein Tonie Löwe')..."
-            class="flex-1 rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-emerald-500 focus:outline-none"
-          />
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <button
             type="button"
-            id="btnQuickCorrection"
-            class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-semibold text-xs shrink-0 transition flex items-center justify-center gap-1.5"
+            id="btnLaunchPlatformApp"
+            class="w-full py-3.5 px-4 rounded-2xl cta-gradient active:scale-[0.98] text-slate-950 font-extrabold text-xs sm:text-sm shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition"
           >
-            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-            <span>Neu berechnen</span>
+            <i data-lucide="external-link" class="w-4 h-4 stroke-[2.5]"></i>
+            <span id="launchPlatformBtnText">Alles kopieren & Kleinanzeigen öffnen</span>
+          </button>
+
+          <button
+            type="button"
+            id="btnNativeShare"
+            class="w-full py-3.5 px-4 rounded-2xl bg-slate-800/90 hover:bg-slate-800 active:scale-[0.98] text-slate-100 font-bold text-xs sm:text-sm border border-white/10 flex items-center justify-center gap-2 transition"
+          >
+            <i data-lucide="share-2" class="w-4 h-4 text-emerald-400"></i>
+            <span>Fotos & Text teilen</span>
+          </button>
+        </div>
+
+        <div class="pt-1 flex items-center justify-between text-[11px] text-slate-400">
+          <span>💡 In Gboard (📋) liegen Preis, Text & Titel direkt griffbereit.</span>
+          <button
+            type="button"
+            id="btnOpenAutofillModal"
+            class="text-emerald-400 hover:text-emerald-300 underline font-semibold shrink-0 flex items-center gap-1"
+          >
+            <i data-lucide="zap" class="w-3 h-3"></i>
+            <span>Browser Auto-Fill</span>
           </button>
         </div>
       </div>
 
-      <!-- 1-Klick Titel Card -->
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2.5">
+      <!-- 2. Titel Card -->
+      <div class="glass-card rounded-3xl p-4 space-y-2.5">
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <i data-lucide="type" class="w-4 h-4 text-emerald-400"></i>
-            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">Titel-Vorschlag</h2>
-          </div>
-          <button id="btnCopyTitle" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 font-semibold text-xs transition">
+          <label for="outputTitle" class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Verkaufstitel</label>
+          <button id="btnCopyTitle" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 font-bold text-xs transition">
             <i data-lucide="copy" class="w-3.5 h-3.5"></i>
             <span>Titel kopieren</span>
           </button>
@@ -472,98 +508,75 @@
         <input
           id="outputTitle"
           type="text"
-          class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm font-medium text-white focus:border-emerald-500 focus:outline-none"
+          class="w-full bg-slate-950/90 border border-white/10 rounded-2xl px-3.5 py-2.5 text-sm font-bold text-white focus:border-emerald-500 focus:outline-none"
         />
       </div>
 
-      <!-- Extra Attribute für Vinted / Marktplätze (falls vorhanden) -->
-      <div id="extraFieldsCard" class="hidden bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2.5">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <i data-lucide="tags" class="w-4 h-4 text-teal-400"></i>
-            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">Plattform-Attribute & Preisvorschlag</h2>
-          </div>
-        </div>
-        <div id="extraFieldsGrid" class="grid grid-cols-2 gap-2 text-xs"></div>
+      <!-- 3. Extra Attribute (Preis, Zustand, Marke) -->
+      <div id="extraFieldsCard" class="hidden glass-card rounded-3xl p-4 space-y-2.5">
+        <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Empfohlene Angaben</div>
+        <div id="extraFieldsGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs"></div>
       </div>
 
-      <!-- 1-Klick Beschreibung im Codeblock (Plaintext) -->
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2.5">
+      <!-- 4. Kopierfertige Beschreibung -->
+      <div class="glass-card rounded-3xl p-4 space-y-2.5">
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <i data-lucide="file-text" class="w-4 h-4 text-emerald-400"></i>
-            <div>
-              <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">Kopierfertige Beschreibung</h2>
-              <p class="text-[10px] text-slate-400">Reiner Text-Codeblock ohne Markdown – Zeilenumbrüche bleiben exakt erhalten</p>
-            </div>
+          <div>
+            <h2 class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Artikelbeschreibung (Reiner Text)</h2>
           </div>
-          <button id="btnCopyDescription" class="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition shrink-0">
-            <i data-lucide="copy" class="w-4 h-4"></i>
-            <span>1-Klick Kopieren</span>
+          <button id="btnCopyDescription" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition shrink-0">
+            <i data-lucide="copy" class="w-3.5 h-3.5 stroke-[2.5]"></i>
+            <span>Text kopieren</span>
           </button>
         </div>
 
         <textarea
           id="outputDescription"
-          rows="11"
-          class="w-full font-mono text-xs leading-relaxed bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-slate-100 focus:border-emerald-500 focus:outline-none resize-y"
+          rows="10"
+          class="w-full font-mono text-xs leading-relaxed bg-slate-950/90 border border-white/10 rounded-2xl p-3.5 text-slate-100 focus:border-emerald-500 focus:outline-none resize-y"
         ></textarea>
       </div>
 
-      <!-- Android Schnell-Export & Auto-Fill Card -->
-      <div class="bg-gradient-to-br from-emerald-950/60 to-slate-900 border border-emerald-500/40 rounded-2xl p-4 space-y-3 shadow-lg shadow-emerald-950/20">
-        <div class="flex items-center justify-between">
+      <!-- 5. Raritäten & Preis-Check Card + Schnell-Korrektur -->
+      <div class="glass-card rounded-3xl p-4 space-y-3">
+        <div class="flex items-center justify-between border-b border-white/5 pb-2.5">
           <div class="flex items-center gap-2">
-            <i data-lucide="smartphone" class="w-4 h-4 text-emerald-400"></i>
-            <div>
-              <h2 class="text-xs font-bold uppercase tracking-wider text-emerald-300">Direkt-Inserat starten (Android & Web)</h2>
-              <p class="text-[10px] text-slate-400">Kopiert Titel + Beschreibung (für Gboard-Zwischenablage) & startet die App</p>
-            </div>
+            <i data-lucide="gem" class="w-4 h-4 text-amber-400"></i>
+            <h2 class="text-[11px] font-bold uppercase tracking-wider text-slate-300">Marktwert & Raritäten-Analyse</h2>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span id="usedModelBadge" class="px-2 py-0.5 text-[10px] font-mono bg-slate-900 text-slate-400 rounded-full"></span>
+            <span id="rarityWarningBadge" class="hidden px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full">
+              💎 Sammlerstück
+            </span>
           </div>
         </div>
+        <div id="priceAnalysisContent" class="text-xs sm:text-sm text-slate-300 whitespace-pre-line leading-relaxed"></div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          <!-- 1-Tap Copy All + Open App -->
+        <!-- Quick-Correction Bar -->
+        <div class="pt-2 border-t border-white/5 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+          <input
+            type="text"
+            id="quickCorrectionInput"
+            placeholder="Anderes Modell? Kurz korrigieren (z.B. 'MX Master 3S')..."
+            class="flex-1 rounded-xl bg-slate-950/90 border border-white/10 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-emerald-500 focus:outline-none"
+          />
           <button
             type="button"
-            id="btnLaunchPlatformApp"
-            class="w-full py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-extrabold text-xs shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition"
+            id="btnQuickCorrection"
+            class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs shrink-0 transition flex items-center justify-center gap-1.5"
           >
-            <i data-lucide="external-link" class="w-4 h-4"></i>
-            <span id="launchPlatformBtnText">Alles kopieren & Kleinanzeigen öffnen</span>
-          </button>
-
-          <!-- Native Android Share (Fotos + Text) -->
-          <button
-            type="button"
-            id="btnNativeShare"
-            class="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-slate-100 font-semibold text-xs border border-slate-700 flex items-center justify-center gap-2 transition"
-          >
-            <i data-lucide="share-2" class="w-4 h-4 text-emerald-400"></i>
-            <span>Fotos & Text teilen (Android Menü)</span>
-          </button>
-        </div>
-
-        <div class="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-[11px] text-slate-400">
-          <span>
-            💡 <strong>Android-Tipp:</strong> Beim Klick auf den grünen Button landen <em>Preis</em>, <em>Beschreibung</em> und <em>Titel</em> nacheinander in deiner Gboard-Zwischenablage!
-          </span>
-          <button
-            type="button"
-            id="btnOpenAutofillModal"
-            class="text-emerald-400 hover:text-emerald-300 underline font-semibold shrink-0 flex items-center gap-1"
-          >
-            <i data-lucide="zap" class="w-3.5 h-3.5"></i>
-            <span>Web-Auto-Fill (1-Klick Formular ausfüllen)</span>
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            <span>Neu berechnen</span>
           </button>
         </div>
       </div>
 
-      <!-- Grounding / Quellen (falls Google Search aktiv war) -->
-      <div id="groundingSourcesCard" class="hidden bg-slate-900/60 border border-slate-800/80 rounded-2xl p-3.5 space-y-2">
-        <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+      <!-- Grounding / Quellen -->
+      <div id="groundingSourcesCard" class="hidden glass-card rounded-2xl p-3.5 space-y-2">
+        <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
           <i data-lucide="globe" class="w-3.5 h-3.5 text-emerald-400"></i>
-          <span>Geprüfte Web-Quellen (Google Search Grounding)</span>
+          <span>Geprüfte Web-Quellen</span>
         </div>
         <div id="groundingLinks" class="flex flex-wrap gap-1.5"></div>
       </div>
@@ -573,39 +586,39 @@
   </main>
 
   <!-- ===================================================================== -->
-  <!-- ADMIN-OBERFLÄCHE (Zentrale Verwaltung: API-Keys, Handy-Sync & Prompts) -->
+  <!-- ADMIN-OBERFLÄCHE (API-Keys, Handy-Sync & Prompts)                     -->
   <!-- ===================================================================== -->
-  <div id="settingsModal" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-4 sm:p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col">
+  <div id="settingsModal" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-slate-900 border border-white/10 rounded-3xl max-w-2xl w-full p-4 sm:p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col">
       <!-- Admin Header -->
-      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+      <div class="flex items-center justify-between border-b border-white/10 pb-3">
         <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-            <i data-lucide="shield" class="w-4 h-4"></i>
+          <div class="w-9 h-9 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
           </div>
           <div>
-            <h3 class="font-bold text-base leading-tight">Admin-Oberfläche</h3>
-            <p class="text-[11px] text-slate-400">API-Keys, Handy-Synchronisation (QR & PIN-Tresor) und System-Prompts</p>
+            <h3 class="font-bold text-base leading-tight text-white">Einstellungen & Handy-Kopplung</h3>
+            <p class="text-[11px] text-slate-400">KI-Anbieter, Live-Suche, QR-Sync & System-Prompts</p>
           </div>
         </div>
-        <button id="btnCloseSettings" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
+        <button id="btnCloseSettings" class="p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
       <!-- Admin Sub-Navigation Tabs -->
-      <div class="grid grid-cols-3 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
-        <button type="button" data-admintab="providers" class="admin-tab-btn py-2 px-2 rounded-lg bg-emerald-500 text-slate-950 font-bold transition flex items-center justify-center gap-1.5">
+      <div class="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-2xl border border-white/5 text-xs font-semibold">
+        <button type="button" data-admintab="providers" class="admin-tab-btn py-2 px-2 rounded-xl bg-emerald-500 text-slate-950 font-bold transition flex items-center justify-center gap-1.5">
           <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
-          <span>1. KI & API-Keys</span>
+          <span>1. KI & Keys</span>
         </button>
-        <button type="button" data-admintab="sync" class="admin-tab-btn py-2 px-2 rounded-lg text-slate-300 hover:text-white transition flex items-center justify-center gap-1.5">
+        <button type="button" data-admintab="sync" class="admin-tab-btn py-2 px-2 rounded-xl text-slate-300 hover:text-white transition flex items-center justify-center gap-1.5">
           <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
-          <span>2. Handy-Sync / PIN</span>
+          <span>2. Handy-Sync</span>
         </button>
-        <button type="button" data-admintab="prompts" class="admin-tab-btn py-2 px-2 rounded-lg text-slate-300 hover:text-white transition flex items-center justify-center gap-1.5">
-          <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i>
-          <span>3. System-Prompts</span>
+        <button type="button" data-admintab="prompts" class="admin-tab-btn py-2 px-2 rounded-xl text-slate-300 hover:text-white transition flex items-center justify-center gap-1.5">
+          <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+          <span>3. Prompts</span>
         </button>
       </div>
 
@@ -615,7 +628,7 @@
         <!-- TAB 1: KI-ANBIETER & API-KEYS -->
         <div id="adminTabProviders" class="space-y-3.5 text-xs text-slate-300">
           <div class="space-y-1.5">
-            <label for="providerSelect" class="block font-semibold text-slate-200">Aktiver KI-Anbieter (Provider)</label>
+            <label for="providerSelect" class="block font-semibold text-slate-200">Aktiver KI-Anbieter</label>
             <select
               id="providerSelect"
               class="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
@@ -658,7 +671,7 @@
             <div class="flex items-center justify-between">
               <label for="modelSelect" class="block font-semibold text-slate-200">Vision-Modell</label>
               <button type="button" id="btnFetchModels" class="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 underline">
-                1-Klick: Modelle vom Anbieter laden & testen
+                Modelle vom Anbieter laden & testen
               </button>
             </div>
             <select
@@ -668,21 +681,21 @@
             <input
               type="text"
               id="customModelInput"
-              placeholder="Modell-ID eingeben (z.B. qwen3.6-35b, gemma-4-31b, kimi-k2.5)"
+              placeholder="Modell-ID eingeben (z.B. qwen3.6-35b, gemma-4-31b)"
               class="hidden mt-2 w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
             />
             <p id="modelStatusHint" class="text-[11px] text-slate-400 leading-relaxed"></p>
           </div>
 
-          <!-- Tavily Live-Web-Search Integration (für präzise Produkt-Identifikation & echte Marktpreise bei allen Anbietern!) -->
-          <div class="bg-slate-950 border border-emerald-500/30 rounded-xl p-3.5 space-y-2">
+          <!-- Tavily Live-Web-Search Integration -->
+          <div class="bg-slate-950 border border-emerald-500/30 rounded-2xl p-3.5 space-y-2">
             <div class="flex items-center justify-between">
               <label for="tavilyApiKeyInput" class="block font-bold text-emerald-400 flex items-center gap-1.5">
                 <i data-lucide="globe" class="w-3.5 h-3.5"></i>
-                <span>Tavily Web-Search API-Key (für exakte Produktdaten & Marktpreise)</span>
+                <span>Tavily Web-Search API-Key (für exakte Produktdaten & Preise)</span>
               </label>
               <a href="https://app.tavily.com" target="_blank" rel="noopener" class="text-[11px] text-emerald-400 underline hover:text-emerald-300">
-                Gratis Key (1.000 Suchen/Monat) ↗
+                Gratis Key ↗
               </a>
             </div>
             <input
@@ -691,21 +704,17 @@
               placeholder="tvly-..."
               class="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
             />
-            <p class="text-[11px] text-slate-400 leading-relaxed">
-              Wenn eingetragen, führt die App vor der Texterstellung automatisch eine <strong>2-stufige Live-Webrecherche über Tavily</strong> durch:
-              1. Foto-Merkmale erkennen ➔ 2. Bei Tavily exakten Produkttitel, Serie, Raritäten-Status & Kleinanzeigen-Preise abrufen ➔ 3. Detailreiche Beschreibung statt generischem Text erstellen!
-            </p>
           </div>
 
           <!-- GitHub Live-Diagnose & Fehler-Sync (PAT) -->
-          <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2">
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-3.5 space-y-2">
             <div class="flex items-center justify-between gap-2">
               <label for="githubPatInput" class="block font-bold text-slate-200 flex items-center gap-1.5">
                 <i data-lucide="bug" class="w-3.5 h-3.5 text-emerald-400"></i>
-                <span>GitHub PAT für automatische Live-Diagnose (Handy & PC)</span>
+                <span>GitHub PAT für automatische Live-Diagnose</span>
               </label>
               <a href="https://github.com/settings/tokens/new?description=SellMate-AI-Diagnose&scopes=public_repo" target="_blank" rel="noopener" class="text-[11px] text-emerald-400 underline hover:text-emerald-300 shrink-0">
-                1-Klick Token erstellen ↗
+                Token erstellen ↗
               </a>
             </div>
             <div class="flex gap-2">
@@ -720,71 +729,64 @@
                 id="btnTestGithubPat"
                 class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-semibold text-xs shrink-0 transition"
               >
-                Test-Log senden
+                Testen
               </button>
             </div>
             <p id="githubPatStatusHint" class="text-[11px] text-slate-400 leading-relaxed">
-              Sendet Diagnose-Protokolle & Fehler beim Testen am Handy oder PC automatisch im Hintergrund an dein GitHub-Repo (<code class="text-slate-300">krautbaron/sellmate-ai</code>). Wird beim QR-Sync & PIN-Tresor automatisch aufs Handy mitübertragen!
+              Sendet Diagnose-Protokolle beim Testen automatisch an <code class="text-slate-300">krautbaron/sellmate-ai</code>.
             </p>
           </div>
 
-          <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-3 space-y-2">
             <label class="flex items-start gap-2.5 cursor-pointer select-none">
               <input type="checkbox" id="toggleProviderFallback" checked class="mt-0.5 rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500" />
               <div>
                 <div class="font-semibold text-slate-200">Automatischer Anbieter-Fallback bei Rate-Limits (429)</div>
                 <div class="text-[11px] text-slate-400 leading-relaxed">
-                  Wechselt bei Rate-Limits nahtlos auf deinen zweiten gespeicherten Anbieter (z.B. Gemini ➔ Neuralwatt).
+                  Wechselt bei Überlastung nahtlos auf deinen zweiten gespeicherten Anbieter.
                 </div>
               </div>
             </label>
           </div>
 
-          <button id="btnSaveSettings" class="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition">
-            KI-Konfiguration speichern
+          <button id="btnSaveSettings" class="w-full py-3 px-4 rounded-2xl cta-gradient text-slate-950 font-extrabold text-xs transition">
+            Einstellungen speichern
           </button>
         </div>
 
         <!-- TAB 2: HANDY-SYNC (QR-CODE / MAGIC-LINK & AES PIN-TRESOR) -->
         <div id="adminTabSync" class="hidden space-y-4 text-xs text-slate-300">
-          <!-- Option A: QR-Code & Magic-Link -->
-          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
-            <div class="flex items-center justify-between">
-              <div>
-                <div class="font-bold text-emerald-400 text-sm">Option A: 1-Scan Handy-Kopplung (QR-Code / Magic-Link)</div>
-                <p class="text-[11px] text-slate-400 mt-0.5">
-                  Scanne diesen QR-Code mit deinem Android-Handy. Dadurch werden alle hier am PC gespeicherten API-Keys & Einstellungen in 1 Sekunde auf dein Handy übertragen – ganz ohne Tippen!
-                </p>
-              </div>
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div>
+              <div class="font-bold text-emerald-400 text-sm">Option A: 1-Scan Handy-Kopplung (QR-Code)</div>
+              <p class="text-[11px] text-slate-400 mt-0.5">
+                Scanne diesen QR-Code mit deinem Smartphone, um alle Keys & Einstellungen in 1 Sekunde zu übertragen.
+              </p>
             </div>
 
             <div class="flex flex-col sm:flex-row items-center gap-4 pt-1">
-              <div id="qrCodeWrapper" class="bg-white p-3 rounded-xl shrink-0 flex items-center justify-center w-40 h-40">
+              <div id="qrCodeWrapper" class="bg-white p-3 rounded-2xl shrink-0 flex items-center justify-center w-40 h-40">
                 <img id="syncQrImage" alt="Handy-Sync QR-Code" class="w-full h-full object-contain hidden" />
                 <span id="syncQrPlaceholder" class="text-[11px] text-slate-600 text-center px-2">Klicke auf „QR-Code erzeugen“</span>
               </div>
               <div class="space-y-2 flex-1 w-full">
-                <button type="button" id="btnGenerateSyncQr" class="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center justify-center gap-1.5">
+                <button type="button" id="btnGenerateSyncQr" class="w-full py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition flex items-center justify-center gap-1.5">
                   <i data-lucide="qr-code" class="w-4 h-4"></i>
-                  <span>QR-Code & Magic-Link erzeugen</span>
+                  <span>QR-Code erzeugen</span>
                 </button>
-                <button type="button" id="btnCopyMagicLink" class="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition flex items-center justify-center gap-1.5">
+                <button type="button" id="btnCopyMagicLink" class="w-full py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition flex items-center justify-center gap-1.5">
                   <i data-lucide="link" class="w-3.5 h-3.5 text-emerald-400"></i>
-                  <span>Magic-Link in Zwischenablage kopieren</span>
+                  <span>Magic-Link kopieren</span>
                 </button>
-                <p class="text-[10px] text-slate-500 leading-relaxed">
-                  Hinweis: Der Link übergibt die Keys per `#sync=...` (URL-Hash). Ein URL-Hash wird niemals an Server übertragen und sofort nach dem Öffnen auf dem Handy wieder aus der Adresszeile gelöscht.
-                </p>
               </div>
             </div>
           </div>
 
-          <!-- Option B: Verschlüsselter PIN-Tresor -->
-          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
             <div>
-              <div class="font-bold text-teal-400 text-sm">Option B: Verschlüsselter PIN-Tresor (für festen Einbau in die App)</div>
+              <div class="font-bold text-teal-400 text-sm">Option B: Verschlüsselter PIN-Tresor (AES-256)</div>
               <p class="text-[11px] text-slate-400 mt-0.5">
-                Verschlüssele alle deine API-Keys mit einer kurzen PIN (AES-256-GCM). Wenn dieser Tresor-Block in der App hinterlegt ist, fragt dein Handy beim ersten Start nur noch nach deiner kurzen PIN!
+                Verschlüssele deine Keys mit einer kurzen PIN für schnelles Entsperren.
               </p>
             </div>
 
@@ -792,16 +794,16 @@
               <input
                 type="password"
                 id="vaultPinCreateInput"
-                placeholder="Kurze PIN oder Passwort wählen (z.B. 2580)"
+                placeholder="Kurze PIN wählen (z.B. 2580)"
                 class="flex-1 rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
               />
-              <button type="button" id="btnCreateVaultBlob" class="py-2 px-4 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs shrink-0 transition">
-                Tresor-Code erzeugen
+              <button type="button" id="btnCreateVaultBlob" class="py-2 px-4 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-extrabold text-xs shrink-0 transition">
+                Tresor erzeugen
               </button>
             </div>
 
             <div id="vaultOutputBox" class="hidden space-y-1.5">
-              <label class="text-[10px] text-slate-400 font-semibold">Verschlüsselter Tresor-String (kann gefahrlos in `DEFAULT_ENCRYPTED_VAULT` in app.js eingetragen werden):</label>
+              <label class="text-[10px] text-slate-400 font-semibold">Verschlüsselter Tresor-String:</label>
               <textarea id="vaultBlobTextarea" rows="3" readonly class="w-full font-mono text-[10px] bg-slate-900 border border-slate-800 rounded-lg p-2 text-emerald-300"></textarea>
             </div>
           </div>
@@ -810,8 +812,8 @@
         <!-- TAB 3: SYSTEM-PROMPTS PRO PLATTFORM -->
         <div id="adminTabPrompts" class="hidden space-y-3 text-xs text-slate-300">
           <div class="flex items-center justify-between">
-            <label for="adminPromptPlatformSelect" class="font-semibold text-slate-200">Plattform-Prompt auswählen:</label>
-            <select id="adminPromptPlatformSelect" class="rounded-lg bg-slate-950 border border-slate-800 px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none">
+            <label for="adminPromptPlatformSelect" class="font-semibold text-slate-200">Plattform auswählen:</label>
+            <select id="adminPromptPlatformSelect" class="rounded-xl bg-slate-950 border border-slate-800 px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none">
               <option value="kleinanzeigen">Kleinanzeigen.de</option>
               <option value="vinted">Vinted</option>
               <option value="willhaben">Willhaben.at</option>
@@ -822,14 +824,14 @@
           <textarea
             id="systemPromptTextarea"
             rows="12"
-            class="w-full font-mono text-xs leading-relaxed rounded-xl bg-slate-950 border border-slate-800 p-3 text-slate-200 focus:border-emerald-500 focus:outline-none"
+            class="w-full font-mono text-xs leading-relaxed rounded-2xl bg-slate-950 border border-slate-800 p-3 text-slate-200 focus:border-emerald-500 focus:outline-none"
           ></textarea>
 
           <div class="flex items-center justify-between gap-2">
             <button id="btnResetPrompt" type="button" class="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition">
-              Auf Standard zurücksetzen
+              Standard wiederherstellen
             </button>
-            <button id="btnSavePrompt" type="button" class="py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition">
+            <button id="btnSavePrompt" type="button" class="py-2 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition">
               Prompt speichern
             </button>
           </div>
@@ -839,72 +841,67 @@
     </div>
   </div>
 
-  <!-- Modal: PIN-Tresor Entsperren (für schnellen Handy-Start ohne Key-Eingabe) -->
-  <div id="pinUnlockModal" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl text-center">
+  <!-- Modal: PIN-Tresor Entsperren -->
+  <div id="pinUnlockModal" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-white/10 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl text-center">
       <div class="w-12 h-12 rounded-2xl bg-emerald-500/15 text-emerald-400 mx-auto flex items-center justify-center">
         <i data-lucide="lock" class="w-6 h-6"></i>
       </div>
       <div class="space-y-1">
         <h3 class="font-bold text-base text-white">SellMate AI entsperren</h3>
-        <p class="text-xs text-slate-400">Gib deine kurze Admin-PIN ein, um deine hinterlegten API-Keys auf diesem Gerät freizuschalten.</p>
+        <p class="text-xs text-slate-400">Gib deine kurze PIN ein, um deine hinterlegten API-Keys freizuschalten.</p>
       </div>
       <input
         type="password"
         id="pinUnlockInput"
-        placeholder="PIN / Passwort..."
-        class="w-full text-center tracking-widest text-base font-bold rounded-xl bg-slate-950 border border-slate-800 px-4 py-3 text-white focus:border-emerald-500 focus:outline-none"
+        placeholder="PIN..."
+        class="w-full text-center tracking-widest text-base font-bold rounded-2xl bg-slate-950 border border-slate-800 px-4 py-3 text-white focus:border-emerald-500 focus:outline-none"
       />
       <p id="pinUnlockError" class="hidden text-xs text-rose-400"></p>
       <div class="flex gap-2">
         <button type="button" id="btnCancelPinUnlock" class="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300">
-          Admin öffnen
+          Einstellungen
         </button>
-        <button type="button" id="btnSubmitPinUnlock" class="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white">
+        <button type="button" id="btnSubmitPinUnlock" class="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-xs font-extrabold text-slate-950">
           Entsperren
         </button>
       </div>
     </div>
   </div>
 
-  <!-- Modal: Web-Auto-Fill für Kleinanzeigen / Vinted / Willhaben -->
-  <div id="autofillModal" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+  <!-- Modal: Web-Auto-Fill -->
+  <div id="autofillModal" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-white/10 rounded-3xl max-w-lg w-full p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
           <i data-lucide="zap" class="w-5 h-5 text-emerald-400"></i>
-          <h3 class="font-bold text-base">1-Klick Web-Formular Auto-Fill</h3>
+          <h3 class="font-bold text-base text-white">1-Klick Web-Formular Auto-Fill</h3>
         </div>
-        <button id="btnCloseAutofillModal" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
+        <button id="btnCloseAutofillModal" class="p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-slate-800">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
       <div class="space-y-3 text-xs text-slate-300 leading-relaxed">
-        <p>
-          Wenn du das Inserat im Browser (Chrome auf Android oder am PC) erstellst, füllt unser <strong>Smart-Auto-Fill</strong> auf <em>kleinanzeigen.de</em>, <em>vinted.de</em> oder <em>willhaben.at</em> automatisch <strong>Titel, Beschreibung und Preis</strong> mit einem einzigen Klick aus!
-        </p>
-
-        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
-          <div class="font-semibold text-emerald-400">Variante A: Direkt für diesen Artikel kopieren & einfügen</div>
+        <div class="bg-slate-950 border border-slate-800 rounded-2xl p-3.5 space-y-2.5">
+          <div class="font-bold text-emerald-400">Variante A: Im Browser automatisch ausfüllen</div>
           <p class="text-[11px] text-slate-400">
-            1. Klicke unten auf <strong>„Auto-Fill-Code kopieren & Formular öffnen“</strong>.<br />
-            2. Tippe im Kleinanzeigen-Browserfenster oben in die Adresszeile, tippe <kbd class="px-1 py-0.5 bg-slate-800 rounded">javascript:</kbd> und füge den kopierten Code ein -> Alle Felder (Titel, Beschreibung, Preis) füllen sich sofort von selbst aus!
+            Klicke unten auf den Button, tippe im Kleinanzeigen-Tab oben in die Adresszeile <kbd class="px-1.5 py-0.5 bg-slate-800 rounded">javascript:</kbd> und füge den kopierten Code ein.
           </p>
           <button
             type="button"
             id="btnCopyCurrentAutofill"
-            class="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition"
+            class="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-2 transition"
           >
             <i data-lucide="wand-2" class="w-4 h-4"></i>
-            <span>Auto-Fill-Code kopieren & Inserats-Seite öffnen</span>
+            <span>Auto-Fill-Code kopieren & Seite öffnen</span>
           </button>
         </div>
 
-        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2">
-          <div class="font-semibold text-slate-200">Variante B: Gboard / Samsung-Tastatur Trick in der Android-App</div>
+        <div class="bg-slate-950 border border-slate-800 rounded-2xl p-3.5 space-y-1.5">
+          <div class="font-bold text-slate-200">Variante B: Android-App (Gboard Zwischenablage)</div>
           <p class="text-[11px] text-slate-400">
-            Wenn du die native <strong>Kleinanzeigen Android-App</strong> nutzt: Unser grüner Button kopiert automatisch zuerst den <strong>Preis</strong>, dann die <strong>Beschreibung</strong> und zuletzt den <strong>Titel</strong>. Öffne in deiner Android-Tastatur einfach das Klemmbrett-Symbol (📋) – dort liegen alle 3 Bausteine untereinander zum 1-Tap-Antippen bereit!
+            Beim Klick auf „Alles kopieren & öffnen“ landen <strong>Preis</strong>, <strong>Beschreibung</strong> und <strong>Titel</strong> nacheinander in deiner Android-Tastatur (📋).
           </p>
         </div>
       </div>
@@ -912,11 +909,11 @@
   </div>
 
   <!-- Toast Notification -->
-  <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 hidden bg-emerald-600 text-white px-4 py-2.5 rounded-full shadow-xl text-xs font-semibold flex items-center gap-2">
-    <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 hidden bg-slate-900/95 border border-emerald-500/40 text-white px-4 py-2.5 rounded-full shadow-2xl backdrop-blur-md text-xs font-bold flex items-center gap-2">
+    <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400 shrink-0"></i>
     <span id="toastText">Kopiert!</span>
   </div>
 
-  <script src="app.js?v=19"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>

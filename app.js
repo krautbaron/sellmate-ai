@@ -2389,13 +2389,13 @@ function switchMainTab(mode) {
   if (mode === 'batch') {
     batchDashboardView.classList.remove('hidden');
     singleItemView.classList.add('hidden');
-    tabBtnBatch.className = 'flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20';
-    tabBtnSingle.className = 'flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition bg-slate-800 text-slate-300 hover:bg-slate-700';
+    tabBtnBatch.className = 'flex-1 py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20';
+    tabBtnSingle.className = 'flex-1 py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all text-slate-400 hover:text-slate-200';
   } else {
     batchDashboardView.classList.add('hidden');
     singleItemView.classList.remove('hidden');
-    tabBtnSingle.className = 'flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20';
-    tabBtnBatch.className = 'flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition bg-slate-800 text-slate-300 hover:bg-slate-700';
+    tabBtnSingle.className = 'flex-1 py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20';
+    tabBtnBatch.className = 'flex-1 py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all text-slate-400 hover:text-slate-200';
   }
 }
 
@@ -2854,9 +2854,9 @@ document.querySelectorAll('.batch-filter-btn').forEach((btn) => {
     currentBatchFilter = btn.dataset.filter;
     document.querySelectorAll('.batch-filter-btn').forEach((b) => {
       if (b.dataset.filter === currentBatchFilter) {
-        b.className = 'batch-filter-btn active px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+        b.className = 'batch-filter-btn active px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-500 text-slate-950 shrink-0 transition';
       } else {
-        b.className = 'batch-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700';
+        b.className = 'batch-filter-btn px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 border border-white/10 text-slate-300 hover:text-white shrink-0 transition';
       }
     });
     renderBatchDashboard();
@@ -3112,10 +3112,10 @@ function renderBatchDashboard() {
         : '';
 
       return `
-        <div class="bg-slate-900 border ${isListed ? 'border-sky-500/40' : 'border-slate-800'} hover:border-slate-700 rounded-2xl p-4 space-y-3 transition">
+        <div class="glass-card ${isListed ? '!border-sky-500/40' : ''} rounded-3xl p-4 space-y-3.5 transition shadow-lg">
           <div class="flex items-start gap-3.5">
             <div class="relative w-20 h-20 shrink-0">
-              <img src="${imgs[0]?.dataUrl || ''}" class="w-20 h-20 rounded-xl object-cover border border-slate-700" />
+              <img src="${imgs[0]?.dataUrl || ''}" class="w-20 h-20 rounded-2xl object-cover border border-white/10" />
               ${photoCountBadge}
             </div>
             <div class="flex-1 min-w-0 space-y-1">
@@ -3124,74 +3124,73 @@ function renderBatchDashboard() {
                 ${badgeHtml}
                 ${rarityHtml}
                 ${confidenceHtml}
-                <span class="px-2 py-0.5 rounded-full text-[10px] bg-slate-800 text-slate-300">${escapeHtml(d.sellingStrategy)}</span>
               </div>
-              <h3 class="font-bold text-sm text-white leading-snug">${escapeHtml(d.itemName)}</h3>
-              <p class="text-xs text-slate-400 leading-relaxed">${escapeHtml(d.sellabilityReason)}</p>
+              <h3 class="font-extrabold text-sm sm:text-base text-white leading-snug">${escapeHtml(d.itemName)}</h3>
+              <p class="text-xs text-slate-400 leading-relaxed line-clamp-2">${escapeHtml(d.sellabilityReason)}</p>
               ${extraThumbsHtml}
             </div>
-            <div class="text-right shrink-0">
-              <div class="text-base sm:text-lg font-extrabold text-emerald-400">${d.recommendedPrice} €</div>
+            <div class="text-right shrink-0 pl-1">
+              <div class="text-lg sm:text-xl font-extrabold text-emerald-400 tracking-tight">${d.recommendedPrice} €</div>
               <div class="text-[10px] text-slate-400">${d.minPrice}–${d.maxPrice} €</div>
-              <div class="text-[10px] ${d.priceFromWebSearch ? 'text-emerald-500' : 'text-slate-500'}" title="${d.priceFromWebSearch ? 'Preis mit Live-Websuche ermittelt' : 'Preis von der KI geschätzt – ohne Live-Marktdaten'}">${d.priceFromWebSearch ? 'Web-geprüft' : 'KI-Schätzung'}</div>
-              <div class="text-[10px] text-teal-400 font-medium mt-0.5">${escapeHtml(d.bestPlatform)}</div>
+              <div class="text-[10px] font-semibold ${d.priceFromWebSearch ? 'text-emerald-400/90' : 'text-slate-500'} mt-0.5">${d.priceFromWebSearch ? '✓ Web-Preis' : 'Schätzung'}</div>
             </div>
           </div>
 
           ${listingLinkDisplayHtml}
           ${linkEditorHtml}
 
-          <!-- Direkt-Aktionen pro Karte -->
-          <div class="pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
-            <div class="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                data-action="launch"
-                data-id="${item.id}"
-                class="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs flex items-center gap-1.5 transition"
-              >
-                <span>📲 Kopieren & Inserieren</span>
-              </button>
+          <!-- Aufgeräumte, daumenfreundliche Aktionsleiste pro Karte -->
+          <div class="pt-2.5 border-t border-white/5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+            <button
+              type="button"
+              data-action="launch"
+              data-id="${item.id}"
+              class="py-2.5 px-4 rounded-2xl cta-gradient active:scale-[0.98] text-slate-950 font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/15 transition"
+            >
+              <span>📲 Kopieren & Inserieren</span>
+            </button>
+
+            <div class="flex items-center justify-between sm:justify-end gap-1.5">
               <button
                 type="button"
                 data-action="toggle-listed"
                 data-id="${item.id}"
-                class="px-2.5 py-1.5 rounded-xl ${
+                class="flex-1 sm:flex-initial py-2 px-3 rounded-xl ${
                   isListed
                     ? 'bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40'
-                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-                } font-semibold text-xs transition"
+                    : 'bg-slate-800/90 hover:bg-slate-800 text-slate-200 border border-white/10'
+                } font-bold text-xs transition text-center"
                 title="Als bei Kleinanzeigen eingestellt markieren & Link hinterlegen"
               >
-                <span>${isListed ? (listingUrl ? '🔗 Link bearbeiten' : '📢 Eingestellt (+ Link)') : '✅ Eingestellt / Link'}</span>
+                <span>${isListed ? (listingUrl ? '🔗 Link' : '📢 Eingestellt') : '✅ Eingestellt'}</span>
               </button>
               <button
                 type="button"
                 data-action="add-photo"
                 data-id="${item.id}"
-                class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 font-semibold text-xs transition"
-                title="Weiteres Foto (z.B. Typenschild oder Rückseite) zu diesem Artikel aufnehmen und neu analysieren"
+                class="py-2 px-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-emerald-300 border border-white/10 font-bold text-xs transition"
+                title="Weiteres Foto (z.B. Typenschild) dazunehmen"
               >
-                <span>📷 + Typenschild</span>
+                <span>📷 +Typ</span>
               </button>
               <button
                 type="button"
                 data-action="open-detail"
                 data-id="${item.id}"
-                class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition"
+                class="py-2 px-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-slate-200 border border-white/10 font-bold text-xs transition"
               >
-                <span>Details</span>
+                <span>📄 Text</span>
+              </button>
+              <button
+                type="button"
+                data-action="delete"
+                data-id="${item.id}"
+                class="py-2 px-2.5 rounded-xl text-slate-500 hover:text-rose-400 hover:bg-slate-800 text-xs transition"
+                title="Löschen"
+              >
+                ✕
               </button>
             </div>
-            <button
-              type="button"
-              data-action="delete"
-              data-id="${item.id}"
-              class="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 text-xs transition"
-              title="Aus Dashboard entfernen"
-            >
-              Löschen
-            </button>
           </div>
         </div>
       `;
