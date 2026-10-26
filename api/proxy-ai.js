@@ -358,11 +358,7 @@ export default async function handler(req, res) {
 
         const candidateModels = [
           'gemini-2.5-flash',
-          'gemini-2.5-flash-lite',
-          'gemini-flash-latest',
-          'gemini-flash-lite-latest',
-          'gemini-3.5-flash-lite',
-          'gemini-3.8-flash'
+          'gemini-flash-latest'
         ];
 
         let lastGemError = '';
@@ -392,7 +388,7 @@ export default async function handler(req, res) {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
-                signal: AbortSignal.timeout(10000)
+                signal: AbortSignal.timeout(6000)
               }
             );
             gemData = await gemRes.json().catch(() => ({}));
