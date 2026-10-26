@@ -190,11 +190,11 @@ const PROVIDERS = {
     helpUrl: 'https://neuralwatt.com',
     helperText: 'Neuralwatt bietet extrem günstige, schnelle Vision-Modelle (OpenAI-kompatibel unter https://api.neuralwatt.com/v1) ohne strenge Free-Tier Rate-Limits.',
     defaultModels: [
-      { id: 'auto', label: '⚡ Automatisch (bestes verfügbares Neuralwatt Vision-Modell)' },
-      { id: 'gemma-4-31b', label: 'Gemma 4 31B (Multimodal Vision – Sehr günstig)' },
-      { id: 'qwen3.6-35b', label: 'Qwen 3.6 35B (Vision – Starke Bilderkennung)' },
-      { id: 'kimi-k2.5', label: 'Kimi K2.5 / K3 (Multimodal Vision)' },
-      { id: 'deepseek-v4.1-flash', label: 'DeepSeek V4.1 Flash (Schnell & Günstig)' }
+      { id: 'qwen-3.8-27b', label: 'Qwen 3.8 27B (Flagship Vision – Empfohlen!)' },
+      { id: 'gemma-4-31b', label: 'Google Gemma 4 31B (Multimodal Text + Vision)' },
+      { id: 'kimi-k3', label: 'Moonshot Kimi K3 (Multimodal Vision)' },
+      { id: 'nw-small', label: 'Neuralwatt Small (Qwen3.8-27B Vision)' },
+      { id: 'glm-5.3-flash', label: 'GLM 5.3 Flash (Multimodal Vision & Schnell)' }
     ]
   },
   gemini: {
@@ -2353,12 +2353,11 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
       onStatusUpdate
     });
 
-    const match = (step1.rawText || '').match(/\{[\s\S]*\}/);
-    if (!match) {
+    const qObj = extractJsonFromText(step1.rawText);
+    if (!qObj) {
       addDiagLog('Stufe 1 lieferte kein JSON – fahre ohne Tavily fort', 'warn');
       return null;
     }
-    const qObj = JSON.parse(match[0]);
 
     const isFig = Boolean(qObj.isFigureOnBase);
     // Entferne halluzinierte Marken, Seriennummern (S/N), Prüfsiegel (CE/EAC), Spannungswerte ("Rating 5.0V 300mA"), "Made in China" sowie Tisch-/Hintergrund-Wörter
@@ -2628,22 +2627,32 @@ Antworte ausschließlich als valides JSON-Objekt (ohne umschließenden Markdown-
   }
 });
 
+function extractJsonFromText(rawText) {
+  if (!rawText) return null;
+  // Entferne Reasoning/Thinking-Tags (<think>...</think>) und Markdown Code-Fences
+  const cleaned = String(rawText)
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/```(?:json)?([\s\S]*?)```/gi, '$1')
+    .trim();
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[0]);
+  } catch (e) {
+    return null;
+  }
+}
+
 function parseModelResponse(rawText) {
-  // Extract JSON block if wrapped in ```json ... ```
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    try {
-      const obj = JSON.parse(jsonMatch[0]);
-      return {
-        priceAndRarityAnalysis: obj.priceAndRarityAnalysis || 'Keine Preisdetails gefunden.',
-        hasRarityWarning: Boolean(obj.hasRarityWarning),
-        title: obj.title || '',
-        description: sanitizePlainTextDescription(obj.description || ''),
-        attributes: obj.attributes || {}
-      };
-    } catch (_) {
-      // Fallback if JSON parsing fails
-    }
+  const obj = extractJsonFromText(rawText);
+  if (obj) {
+    return {
+      priceAndRarityAnalysis: obj.priceAndRarityAnalysis || 'Keine Preisdetails gefunden.',
+      hasRarityWarning: Boolean(obj.hasRarityWarning),
+      title: obj.title || '',
+      description: sanitizePlainTextDescription(obj.description || ''),
+      attributes: obj.attributes || {}
+    };
   }
 
   return {
@@ -3469,12 +3478,10 @@ Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit diesen Feldern:
     deductCredit: true
   });
 
-  const match = (aiRes.rawText || '').match(/\{[\s\S]*\}/);
-  if (!match) {
+  const parsed = extractJsonFromText(aiRes.rawText);
+  if (!parsed) {
     throw new Error('Ungültige JSON-Antwort vom Modell.');
   }
-
-  const parsed = JSON.parse(match[0]);
   return {
     itemName: parsed.itemName || 'Unbekannter Artikel',
     identificationConfidence: ['hoch', 'mittel', 'niedrig'].includes(parsed.identificationConfidence) ? parsed.identificationConfidence : 'mittel',
