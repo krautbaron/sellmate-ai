@@ -127,6 +127,13 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, ticket });
   }
 
+  if (action === 'list_models') {
+    const apiKey = (process.env.SERVER_AI_API_KEY || '').trim();
+    const mRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
+    const mData = await mRes.json().catch(() => ({}));
+    return res.status(200).json(mData);
+  }
+
   const supabaseUrl = (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
   const supabaseServiceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 
