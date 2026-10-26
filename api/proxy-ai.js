@@ -352,13 +352,28 @@ export default async function handler(req, res) {
         const candidateModels = [
           targetModel,
           'gemini-1.5-flash',
-          'gemini-flash-latest'
+          'gemini-flash-latest',
+          'gemma-3-27b-it'
         ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
         let lastGemError = '';
         let lastGemStatus = 500;
 
         for (const candidateModel of candidateModels) {
+          const isGemma = candidateModel.toLowerCase().startsWith('gemma');
+          const body = {
+            contents: [{ role: 'user', parts: isGemma ? [{ text: systemPrompt + '\n\n' }, ...parts] : parts }],
+            generationConfig: { temperature: 0.2 }
+          };
+          if (!isGemma) {
+            body.system_instruction = { parts: [{ text: systemPrompt }] };
+            if (allowGeminiSearch) {
+              body.tools = [{ google_search: {} }];
+            } else {
+              body.generationConfig.responseMimeType = 'application/json';
+            }
+          }
+
           let gemRes = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${encodeURIComponent(apiKey)}`,
             {
@@ -369,19 +384,25 @@ export default async function handler(req, res) {
           );
           let gemData = await gemRes.json().catch(() => ({}));
 
-          // Falls Search 400/429 liefert, sofort nochmals ohne Search probieren
-          if (!gemRes.ok && allowGeminiSearch && (gemRes.status === 400 || gemRes.status === 429)) {
-            const bodyNoSearch = { ...body, tools: undefined };
-            bodyNoSearch.generationConfig = { ...body.generationConfig, responseMimeType: 'application/json' };
-            gemRes = await fetch(
+          // Falls Search oder JSON 400/429/503 liefert, sofort nochmals einfacher probieren
+          if (!gemRes.ok && !isGemma && (allowGeminiSearch || gemRes.status === 400 || gemRes.status === 429)) {
+            const bodyPlain = {
+              contents: [{ role: 'user', parts: [{ text: systemPrompt + '\n\n' }, ...parts] }],
+              generationConfig: { temperature: 0.2 }
+            };
+            const retryRes = await fetch(
               `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${encodeURIComponent(apiKey)}`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(bodyNoSearch)
+                body: JSON.stringify(bodyPlain)
               }
             );
-            gemData = await gemRes.json().catch(() => ({}));
+            const retryData = await retryRes.json().catch(() => ({}));
+            if (retryRes.ok) {
+              gemRes = retryRes;
+              gemData = retryData;
+            }
           }
 
           if (gemRes.ok) {
