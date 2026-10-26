@@ -259,10 +259,12 @@ const pinUnlockError = document.getElementById('pinUnlockError');
 const btnCancelPinUnlock = document.getElementById('btnCancelPinUnlock');
 const btnSubmitPinUnlock = document.getElementById('btnSubmitPinUnlock');
 
-// Initialize Icons, Magic-Link Sync & Settings
+// Initialize Icons, Magic-Link Sync, Auth & Settings
 document.addEventListener('DOMContentLoaded', () => {
   lucide.createIcons();
   checkAndImportUrlHashSync();
+  checkAndImportOAuthRedirect();
+  initAuthSystem();
   loadSettings();
   registerServiceWorker();
 });
@@ -2466,15 +2468,23 @@ async function saveBatchToStorage(changedItem = null) {
     const db = await openBatchDb();
     const tx = db.transaction(IDB_STORE, 'readwrite');
     const store = tx.objectStore(IDB_STORE);
+    const currentOwner = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : 'guest';
     if (changedItem) {
+      if (!changedItem.ownerId) changedItem.ownerId = currentOwner;
       store.put(changedItem);
     } else {
-      const existingKeys = await idbRequest(store.getAllKeys());
+      const allExisting = await idbRequest(store.getAll());
       const currentIds = new Set(batchItems.map((i) => i.id));
-      existingKeys.forEach((key) => {
-        if (!currentIds.has(key)) store.delete(key);
+      (allExisting || []).forEach((item) => {
+        const itemOwner = item.ownerId || 'guest';
+        if (itemOwner === currentOwner && !currentIds.has(item.id)) {
+          store.delete(item.id);
+        }
       });
-      batchItems.forEach((item) => store.put(item));
+      batchItems.forEach((item) => {
+        if (!item.ownerId) item.ownerId = currentOwner;
+        store.put(item);
+      });
     }
     await new Promise((resolve, reject) => {
       tx.oncomplete = resolve;
@@ -2503,7 +2513,18 @@ async function loadBatchFromStorage() {
     }
 
     const all = await idbRequest(db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).getAll());
-    batchItems = (all || []).sort((a, b) => b.createdAt - a.createdAt);
+    const currentOwner = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : 'guest';
+    const rawList = all || [];
+    batchItems = rawList
+      .filter((item) => {
+        const itemOwner = item.ownerId || 'guest';
+        if (currentOwner === 'guest') {
+          return itemOwner === 'guest';
+        }
+        return itemOwner === currentOwner;
+      })
+      .sort((a, b) => b.createdAt - a.createdAt);
+
     // Falls beim letzten Schließen noch was auf 'analyzing' stand -> zurück auf 'queued'
     batchItems.forEach((item) => {
       if (item.status === 'analyzing') item.status = 'queued';
@@ -2631,6 +2652,7 @@ function commitStagedItemToQueue() {
   batchItems.unshift({
     id: 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
     createdAt: Date.now(),
+    ownerId: (typeof getCurrentUserId === 'function') ? getCurrentUserId() : 'guest',
     status: 'queued',
     image: imagesCopy[0],
     images: imagesCopy,
@@ -2705,6 +2727,7 @@ async function enqueueBatchFiles(files) {
     batchItems.unshift({
       id: 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       createdAt: Date.now(),
+      ownerId: (typeof getCurrentUserId === 'function') ? getCurrentUserId() : 'guest',
       status: 'queued',
       image: compressed,
       images: [compressed],
@@ -3170,6 +3193,7 @@ if (btnCreateBundleItem) {
     const newBundleItem = {
       id: 'bundle_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       createdAt: Date.now(),
+      ownerId: (typeof getCurrentUserId === 'function') ? getCurrentUserId() : 'guest',
       status: 'done',
       image: allImages[0] || null,
       images: allImages,
@@ -4145,5 +4169,864 @@ if (batchItemsList) {
         }
       }, 450);
     }
+  });
+}
+
+// ============================================================================
+// HYBRIDES BENUTZERKONTO- & AUTH-SYSTEM (PASSKEY, SOCIAL OAUTH & E-MAIL)
+// ============================================================================
+
+const AUTH_USERS_KEY = 'sellmate_auth_users_v1';
+const AUTH_SESSION_KEY = 'sellmate_auth_session_v1';
+const AUTH_CLOUD_KEY = 'sellmate_auth_cloud_cfg_v1';
+
+// DOM Elements: Header & Auth Modal
+const btnAuthModal = document.getElementById('btnAuthModal');
+const authHeaderAvatar = document.getElementById('authHeaderAvatar');
+const authHeaderLabel = document.getElementById('authHeaderLabel');
+
+const authModal = document.getElementById('authModal');
+const btnCloseAuthModal = document.getElementById('btnCloseAuthModal');
+const authModalTitle = document.getElementById('authModalTitle');
+const authModalSubtitle = document.getElementById('authModalSubtitle');
+
+const authLoggedOutView = document.getElementById('authLoggedOutView');
+const authLoggedInView = document.getElementById('authLoggedInView');
+
+const authTabLogin = document.getElementById('authTabLogin');
+const authTabRegister = document.getElementById('authTabRegister');
+let authMode = 'login'; // 'login' | 'register'
+
+const btnAuthPasskeyLogin = document.getElementById('btnAuthPasskeyLogin');
+const btnAuthGoogle = document.getElementById('btnAuthGoogle');
+const btnAuthApple = document.getElementById('btnAuthApple');
+
+const authEmailForm = document.getElementById('authEmailForm');
+const authNameWrapper = document.getElementById('authNameWrapper');
+const authNameInput = document.getElementById('authNameInput');
+const authEmailInput = document.getElementById('authEmailInput');
+const authPasswordInput = document.getElementById('authPasswordInput');
+const btnToggleAuthPassword = document.getElementById('btnToggleAuthPassword');
+const authPasswordConfirmWrapper = document.getElementById('authPasswordConfirmWrapper');
+const authPasswordConfirmInput = document.getElementById('authPasswordConfirmInput');
+const authMigrateGuestWrapper = document.getElementById('authMigrateGuestWrapper');
+const authMigrateGuestDataCheckbox = document.getElementById('authMigrateGuestDataCheckbox');
+const authErrorBox = document.getElementById('authErrorBox');
+const btnAuthSubmit = document.getElementById('btnAuthSubmit');
+
+const btnToggleCloudConfig = document.getElementById('btnToggleCloudConfig');
+const cloudConfigChevron = document.getElementById('cloudConfigChevron');
+const authCloudConfigDetails = document.getElementById('authCloudConfigDetails');
+const authSupabaseUrlInput = document.getElementById('authSupabaseUrlInput');
+const authSupabaseAnonKeyInput = document.getElementById('authSupabaseAnonKeyInput');
+const btnSaveCloudConfig = document.getElementById('btnSaveCloudConfig');
+
+const profileAvatarLarge = document.getElementById('profileAvatarLarge');
+const profileDisplayName = document.getElementById('profileDisplayName');
+const profileEmail = document.getElementById('profileEmail');
+const profileProviderBadge = document.getElementById('profileProviderBadge');
+const profileItemCountBadge = document.getElementById('profileItemCountBadge');
+
+const passkeyStatusBadge = document.getElementById('passkeyStatusBadge');
+const passkeyStatusText = document.getElementById('passkeyStatusText');
+const btnRegisterPasskey = document.getElementById('btnRegisterPasskey');
+
+const profileSwitchSection = document.getElementById('profileSwitchSection');
+const profileSwitchList = document.getElementById('profileSwitchList');
+
+const btnAuthLogout = document.getElementById('btnAuthLogout');
+const btnAuthDeleteAccount = document.getElementById('btnAuthDeleteAccount');
+
+// Speicher-Helfer
+function getAuthUsers() {
+  try {
+    return JSON.parse(localStorage.getItem(AUTH_USERS_KEY) || '[]');
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveAuthUsers(users) {
+  localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(users || []));
+}
+
+function getActiveSession() {
+  try {
+    return JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null');
+  } catch (_) {
+    return null;
+  }
+}
+
+function setActiveSession(session) {
+  if (session) {
+    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+  } else {
+    localStorage.removeItem(AUTH_SESSION_KEY);
+  }
+}
+
+function getCurrentUser() {
+  const session = getActiveSession();
+  if (!session || !session.userId) return null;
+  const users = getAuthUsers();
+  return users.find((u) => u.id === session.userId) || null;
+}
+
+function getCurrentUserId() {
+  const u = getCurrentUser();
+  return u ? u.id : 'guest';
+}
+
+function getCloudAuthConfig() {
+  try {
+    return JSON.parse(localStorage.getItem(AUTH_CLOUD_KEY) || '{}');
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveCloudAuthConfig(cfg) {
+  localStorage.setItem(AUTH_CLOUD_KEY, JSON.stringify(cfg || {}));
+}
+
+function setAuthError(msg) {
+  if (!authErrorBox) return;
+  if (!msg) {
+    authErrorBox.classList.add('hidden');
+    authErrorBox.textContent = '';
+  } else {
+    authErrorBox.textContent = msg;
+    authErrorBox.classList.remove('hidden');
+  }
+}
+
+function clearAuthError() {
+  setAuthError('');
+}
+
+// PBKDF2 Passwort-Hashing (Web Crypto API)
+async function hashPasswordWithSalt(password, saltUint8Array) {
+  const enc = new TextEncoder();
+  const baseKey = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+  const hashBuf = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: saltUint8Array, iterations: 100000, hash: 'SHA-256' },
+    baseKey,
+    256
+  );
+  return btoa(String.fromCharCode(...new Uint8Array(hashBuf)));
+}
+
+// WebAuthn / Passkey Base64-Helfer
+function bufferToBase64Url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlToBuffer(base64url) {
+  let base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) base64 += '=';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+function isWebAuthnSupported() {
+  return Boolean(window.PublicKeyCredential && navigator.credentials && navigator.credentials.create && navigator.credentials.get);
+}
+
+// Passkey für den aktuellen Nutzer registrieren
+async function registerPasskeyForCurrentUser() {
+  const user = getCurrentUser();
+  if (!user) {
+    showToast('Bitte melde dich zuerst an');
+    return;
+  }
+  if (!isWebAuthnSupported()) {
+    showToast('Dein Browser unterstützt Passkeys / WebAuthn nicht');
+    return;
+  }
+
+  try {
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const userIdBytes = new TextEncoder().encode(user.id);
+
+    const creationOptions = {
+      challenge,
+      rp: {
+        name: 'SellMate AI',
+        id: window.location.hostname || undefined
+      },
+      user: {
+        id: userIdBytes,
+        name: user.email,
+        displayName: user.name || user.email.split('@')[0]
+      },
+      pubKeyCredParams: [
+        { alg: -7, type: 'public-key' },
+        { alg: -257, type: 'public-key' }
+      ],
+      authenticatorSelection: {
+        userVerification: 'preferred',
+        residentKey: 'preferred'
+      },
+      timeout: 60000,
+      attestation: 'none'
+    };
+
+    if (!window.location.hostname || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      delete creationOptions.rp.id;
+    }
+
+    const credential = await navigator.credentials.create({ publicKey: creationOptions });
+    if (!credential) throw new Error('Registrierung abgebrochen');
+
+    const credId = bufferToBase64Url(credential.rawId);
+    user.passkeyCredentialId = credId;
+
+    const users = getAuthUsers();
+    const idx = users.findIndex((u) => u.id === user.id);
+    if (idx !== -1) {
+      users[idx] = user;
+      saveAuthUsers(users);
+    }
+
+    renderAuthModalViews();
+    showToast('✓ Passkey (Biometrie) für dieses Gerät erfolgreich eingerichtet!');
+  } catch (err) {
+    if (err.name === 'NotAllowedError') {
+      showToast('Passkey-Einrichtung abgebrochen');
+    } else {
+      showToast(`Passkey-Fehler: ${err?.message || err}`);
+    }
+  }
+}
+
+// 1-Tap Biometrie-Login mit Passkey
+async function loginWithPasskey() {
+  clearAuthError();
+  if (!isWebAuthnSupported()) {
+    setAuthError('Passkeys / Biometrie werden in diesem Browser nicht unterstützt.');
+    return;
+  }
+
+  const users = getAuthUsers();
+  const usersWithPasskeys = users.filter((u) => u.passkeyCredentialId);
+
+  if (usersWithPasskeys.length === 0) {
+    setAuthError('Noch kein Passkey auf diesem Gerät eingerichtet. Bitte melde dich erst an und tippe im Profil auf „Passkey aktivieren“.');
+    return;
+  }
+
+  try {
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const allowCredentials = usersWithPasskeys.map((u) => ({
+      id: base64UrlToBuffer(u.passkeyCredentialId),
+      type: 'public-key',
+      transports: ['internal', 'hybrid', 'usb', 'nfc', 'ble']
+    }));
+
+    const getOptions = {
+      challenge,
+      allowCredentials,
+      timeout: 60000,
+      userVerification: 'preferred'
+    };
+
+    if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      getOptions.rpId = window.location.hostname;
+    }
+
+    const assertion = await navigator.credentials.get({ publicKey: getOptions });
+    if (!assertion) throw new Error('Biometrie-Login abgebrochen');
+
+    const credId = bufferToBase64Url(assertion.rawId);
+    const matchedUser = usersWithPasskeys.find((u) => u.passkeyCredentialId === credId);
+
+    if (!matchedUser) {
+      setAuthError('Kein passendes Konto für diesen Passkey gefunden.');
+      return;
+    }
+
+    matchedUser.lastLoginAt = Date.now();
+    saveAuthUsers(users);
+    await loginUser(matchedUser, { migrateGuestData: false });
+    showToast(`✓ Willkommen zurück, ${matchedUser.name || matchedUser.email}!`);
+  } catch (err) {
+    if (err.name === 'NotAllowedError') {
+      // Abgebrochen durch Nutzer
+    } else {
+      setAuthError(`Passkey-Fehler: ${err?.message || err}`);
+    }
+  }
+}
+
+// Social Logins (Google & Apple - Hybrid: Supabase Cloud OAuth + Lokaler Sofort-Modus)
+async function handleSocialLogin(provider) {
+  clearAuthError();
+  const cloudCfg = getCloudAuthConfig();
+  const supabaseUrl = (cloudCfg.supabaseUrl || '').trim().replace(/\/+$/, '');
+  const supabaseKey = (cloudCfg.supabaseAnonKey || '').trim();
+
+  // Falls echtes Supabase hinterlegt ist: starte Redirect-Flow
+  if (supabaseUrl && supabaseKey) {
+    const redirectTo = window.location.origin + window.location.pathname;
+    const authUrl = `${supabaseUrl}/auth/v1/authorize?provider=${provider}&redirect_to=${encodeURIComponent(redirectTo)}`;
+    window.location.href = authUrl;
+    return;
+  }
+
+  // Lokaler Sofort-Flow (ohne Server)
+  const defaultDomain = provider === 'apple' ? '@icloud.com' : '@gmail.com';
+  const providerLabel = provider === 'apple' ? 'Apple' : 'Google';
+
+  const users = getAuthUsers();
+  const existing = users.find((u) => u.provider === provider);
+
+  let email = '';
+  if (existing) {
+    email = existing.email;
+  } else {
+    const input = prompt(`Mit ${providerLabel} anmelden:\nBitte gib deine ${providerLabel}-E-Mail-Adresse ein:`, `alex${defaultDomain}`);
+    if (!input || !input.trim()) return;
+    email = input.trim().toLowerCase();
+  }
+
+  let user = users.find((u) => u.email === email);
+  const migrateGuest = authMigrateGuestDataCheckbox ? authMigrateGuestDataCheckbox.checked : true;
+
+  if (!user) {
+    user = {
+      id: `usr_${provider}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      email,
+      name: email.split('@')[0],
+      provider,
+      createdAt: Date.now(),
+      lastLoginAt: Date.now()
+    };
+    users.unshift(user);
+    saveAuthUsers(users);
+  } else {
+    user.provider = provider;
+    user.lastLoginAt = Date.now();
+    saveAuthUsers(users);
+  }
+
+  await loginUser(user, { migrateGuestData: migrateGuest });
+  showToast(`✓ Mit ${providerLabel} angemeldet (${user.name || user.email})!`);
+}
+
+// Supabase OAuth Callback im URL Hash auswerten
+async function checkAndImportOAuthRedirect() {
+  const hash = window.location.hash || '';
+  if (!hash.includes('access_token=')) return;
+
+  try {
+    const params = new URLSearchParams(hash.replace(/^#/, ''));
+    const accessToken = params.get('access_token');
+    if (!accessToken) return;
+
+    const cloudCfg = getCloudAuthConfig();
+    const supabaseUrl = (cloudCfg.supabaseUrl || '').trim().replace(/\/+$/, '');
+    const supabaseKey = (cloudCfg.supabaseAnonKey || '').trim();
+
+    if (supabaseUrl) {
+      const res = await fetch(`${supabaseUrl}/auth/v1/user`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          apikey: supabaseKey || accessToken
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const email = data.email || `user_${data.id.slice(0, 8)}@cloud.auth`;
+        const provider = data.app_metadata?.provider || 'oauth';
+        const name = data.user_metadata?.full_name || data.user_metadata?.name || email.split('@')[0];
+
+        const users = getAuthUsers();
+        let user = users.find((u) => u.id === data.id || u.email === email);
+        if (!user) {
+          user = {
+            id: `usr_cloud_${data.id.slice(0, 10)}`,
+            email,
+            name,
+            provider,
+            createdAt: Date.now(),
+            lastLoginAt: Date.now()
+          };
+          users.unshift(user);
+        } else {
+          user.lastLoginAt = Date.now();
+        }
+        saveAuthUsers(users);
+        await loginUser(user, { migrateGuestData: true });
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+        showToast(`✓ Cloud-Login erfolgreich (${user.name})!`);
+      }
+    }
+  } catch (e) {
+    console.error('OAuth redirect parsing error:', e);
+  }
+}
+
+// E-Mail & Passwort Submit Handler
+async function handleEmailAuthSubmit() {
+  clearAuthError();
+  const email = (authEmailInput?.value || '').trim().toLowerCase();
+  const password = authPasswordInput?.value || '';
+
+  if (!email || !email.includes('@')) {
+    setAuthError('Bitte eine gültige E-Mail-Adresse eingeben.');
+    return;
+  }
+  if (!password || password.length < 6) {
+    setAuthError('Das Passwort muss mindestens 6 Zeichen lang sein.');
+    return;
+  }
+
+  const users = getAuthUsers();
+
+  if (authMode === 'register') {
+    const name = (authNameInput?.value || '').trim();
+    const confirm = authPasswordConfirmInput?.value || '';
+
+    if (password !== confirm) {
+      setAuthError('Die Passwörter stimmen nicht überein.');
+      return;
+    }
+
+    const existing = users.find((u) => u.email === email);
+    if (existing) {
+      setAuthError('Für diese E-Mail-Adresse existiert bereits ein Konto. Bitte auf „Anmelden“ wechseln.');
+      return;
+    }
+
+    try {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const hash = await hashPasswordWithSalt(password, salt);
+      const saltB64 = btoa(String.fromCharCode(...salt));
+
+      const newUser = {
+        id: `usr_email_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        email,
+        name: name || email.split('@')[0],
+        provider: 'email',
+        passwordHash: hash,
+        passwordSalt: saltB64,
+        createdAt: Date.now(),
+        lastLoginAt: Date.now()
+      };
+
+      users.unshift(newUser);
+      saveAuthUsers(users);
+
+      const migrateGuest = authMigrateGuestDataCheckbox ? authMigrateGuestDataCheckbox.checked : true;
+      await loginUser(newUser, { migrateGuestData: migrateGuest });
+      showToast(`✓ Konto erstellt! Willkommen, ${newUser.name}.`);
+    } catch (e) {
+      setAuthError(`Fehler bei der Registrierung: ${e.message}`);
+    }
+  } else {
+    // Login
+    const user = users.find((u) => u.email === email);
+    if (!user) {
+      setAuthError('Kein Konto mit dieser E-Mail gefunden. Bitte erstelle zuerst ein Konto.');
+      return;
+    }
+
+    if (!user.passwordHash || !user.passwordSalt) {
+      setAuthError('Dieses Konto wurde über eine andere Methode (Passkey/Social) registriert.');
+      return;
+    }
+
+    try {
+      const rawSalt = Uint8Array.from(atob(user.passwordSalt), (c) => c.charCodeAt(0));
+      const hash = await hashPasswordWithSalt(password, rawSalt);
+
+      if (hash !== user.passwordHash) {
+        setAuthError('Falsches Passwort. Bitte erneut versuchen.');
+        return;
+      }
+
+      user.lastLoginAt = Date.now();
+      saveAuthUsers(users);
+
+      const migrateGuest = authMigrateGuestDataCheckbox ? authMigrateGuestDataCheckbox.checked : false;
+      await loginUser(user, { migrateGuestData: migrateGuest });
+      showToast(`✓ Willkommen zurück, ${user.name || user.email}!`);
+    } catch (e) {
+      setAuthError(`Login-Fehler: ${e.message}`);
+    }
+  }
+}
+
+// Bestehende Gast-Daten in das neue Benutzerkonto migrieren
+async function migrateGuestDataToUser(newUserId) {
+  try {
+    const db = await openBatchDb();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    const store = tx.objectStore(IDB_STORE);
+    const all = await idbRequest(store.getAll());
+    let migratedCount = 0;
+    (all || []).forEach((item) => {
+      if (!item.ownerId || item.ownerId === 'guest') {
+        item.ownerId = newUserId;
+        store.put(item);
+        migratedCount++;
+      }
+    });
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    return migratedCount;
+  } catch (err) {
+    console.error('Migration error:', err);
+    return 0;
+  }
+}
+
+// Benutzer anmelden & Profil-Konfiguration aktivieren
+async function loginUser(user, { migrateGuestData = false } = {}) {
+  const previousUserId = getCurrentUserId();
+  if (previousUserId && previousUserId !== 'guest') {
+    localStorage.setItem(`sellmate_profile_cfg_${previousUserId}`, JSON.stringify(collectConfigBundle()));
+  }
+
+  if (migrateGuestData) {
+    localStorage.setItem(`sellmate_profile_cfg_${user.id}`, JSON.stringify(collectConfigBundle()));
+    await migrateGuestDataToUser(user.id);
+  }
+
+  setActiveSession({ userId: user.id, email: user.email, provider: user.provider, loggedInAt: Date.now() });
+
+  const savedCfg = localStorage.getItem(`sellmate_profile_cfg_${user.id}`);
+  if (savedCfg) {
+    try {
+      applyConfigBundle(JSON.parse(savedCfg));
+    } catch (_) {}
+  }
+
+  await loadBatchFromStorage();
+  updateAuthHeaderIndicator();
+  closeAuthModal();
+}
+
+// Benutzer abmelden (Zurück zu Gast-Modus)
+async function logoutUser() {
+  const current = getCurrentUser();
+  if (current) {
+    localStorage.setItem(`sellmate_profile_cfg_${current.id}`, JSON.stringify(collectConfigBundle()));
+  }
+  setActiveSession(null);
+  await loadBatchFromStorage();
+  updateAuthHeaderIndicator();
+  renderAuthModalViews();
+  showToast('Abgemeldet – zurück im Gast-Modus');
+}
+
+// Header-Badge & Profil-Button aktualisieren
+function updateAuthHeaderIndicator() {
+  const user = getCurrentUser();
+  if (!btnAuthModal || !authHeaderAvatar || !authHeaderLabel) return;
+
+  if (user) {
+    const initials = (user.name || user.email || 'U').slice(0, 2).toUpperCase();
+    authHeaderAvatar.innerHTML = `<span class="text-[10px] font-bold text-slate-950">${escapeHtml(initials)}</span>`;
+    authHeaderAvatar.className = 'w-5 h-5 rounded-full bg-emerald-400 text-slate-950 flex items-center justify-center font-bold ring-2 ring-emerald-500/30';
+    authHeaderLabel.textContent = (user.name || user.email.split('@')[0]).slice(0, 10);
+    btnAuthModal.classList.add('border-emerald-500/40');
+  } else {
+    authHeaderAvatar.innerHTML = `<i data-lucide="user" class="w-3 h-3 text-slate-300"></i>`;
+    authHeaderAvatar.className = 'w-5 h-5 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-[10px] font-bold border border-white/10';
+    authHeaderLabel.textContent = 'Anmelden';
+    btnAuthModal.classList.remove('border-emerald-500/40');
+  }
+  lucide.createIcons();
+}
+
+async function countUserItems(userId) {
+  try {
+    const db = await openBatchDb();
+    const all = await idbRequest(db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).getAll());
+    return (all || []).filter((i) => (i.ownerId || 'guest') === userId).length;
+  } catch (_) {
+    return 0;
+  }
+}
+
+// Auth Modal Views umschalten & befüllen
+async function renderAuthModalViews() {
+  const user = getCurrentUser();
+  if (user) {
+    if (authLoggedOutView) authLoggedOutView.classList.add('hidden');
+    if (authLoggedInView) authLoggedInView.classList.remove('hidden');
+
+    if (authModalTitle) authModalTitle.textContent = 'Mein Benutzerkonto';
+    if (authModalSubtitle) authModalSubtitle.textContent = 'Angemeldet auf diesem Gerät';
+
+    const initials = (user.name || user.email || 'SM').slice(0, 2).toUpperCase();
+    if (profileAvatarLarge) profileAvatarLarge.textContent = initials;
+    if (profileDisplayName) profileDisplayName.textContent = user.name || user.email.split('@')[0];
+    if (profileEmail) profileEmail.textContent = user.email;
+
+    const providerNames = {
+      email: 'E-Mail & Passwort',
+      google: 'Google',
+      apple: 'Apple',
+      passkey: 'Passkey'
+    };
+    if (profileProviderBadge) {
+      profileProviderBadge.textContent = providerNames[user.provider] || user.provider || 'Lokal';
+    }
+
+    const itemCount = await countUserItems(user.id);
+    if (profileItemCountBadge) {
+      profileItemCountBadge.textContent = `${itemCount} Artikel im Konto`;
+    }
+
+    if (user.passkeyCredentialId) {
+      if (passkeyStatusBadge) {
+        passkeyStatusBadge.textContent = '✓ Aktiv';
+        passkeyStatusBadge.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+      }
+      if (passkeyStatusText) {
+        passkeyStatusText.textContent = '✓ Biometrischer Passkey (FaceID / Fingerabdruck) ist für dieses Gerät eingerichtet.';
+      }
+      if (btnRegisterPasskey) {
+        btnRegisterPasskey.innerHTML = '<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i><span>Passkey neu einrichten</span>';
+      }
+    } else {
+      if (passkeyStatusBadge) {
+        passkeyStatusBadge.textContent = 'Nicht eingerichtet';
+        passkeyStatusBadge.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-900 text-slate-400';
+      }
+      if (passkeyStatusText) {
+        passkeyStatusText.textContent = 'Verknüpfe deinen Fingerabdruck, FaceID oder Windows Hello für 1-Klick-Anmeldung.';
+      }
+      if (btnRegisterPasskey) {
+        btnRegisterPasskey.innerHTML = '<i data-lucide="key" class="w-3.5 h-3.5"></i><span>Passkey für dieses Gerät aktivieren</span>';
+      }
+    }
+
+    renderProfileSwitchList();
+  } else {
+    if (authLoggedOutView) authLoggedOutView.classList.remove('hidden');
+    if (authLoggedInView) authLoggedInView.classList.add('hidden');
+
+    if (authModalTitle) authModalTitle.textContent = 'Benutzerkonto & Anmeldung';
+    if (authModalSubtitle) authModalSubtitle.textContent = 'Artikel, Einstellungen & Sync verwalten';
+
+    const cloudCfg = getCloudAuthConfig();
+    if (authSupabaseUrlInput) authSupabaseUrlInput.value = cloudCfg.supabaseUrl || '';
+    if (authSupabaseAnonKeyInput) authSupabaseAnonKeyInput.value = cloudCfg.supabaseAnonKey || '';
+  }
+  lucide.createIcons();
+}
+
+function renderProfileSwitchList() {
+  if (!profileSwitchList) return;
+  const users = getAuthUsers();
+  const current = getCurrentUser();
+
+  let html = `
+    <button type="button" data-switch-user="guest" class="w-full px-3 py-2 rounded-xl flex items-center justify-between text-left transition ${
+      !current ? 'bg-emerald-500/15 border border-emerald-500 text-white' : 'bg-slate-900 border border-slate-800 text-slate-300 hover:border-slate-700'
+    }">
+      <div class="flex items-center gap-2">
+        <span class="w-6 h-6 rounded-full bg-slate-800 text-slate-400 text-[10px] font-bold flex items-center justify-center">👤</span>
+        <span class="text-xs font-semibold">Gast-Modus (Ohne Konto)</span>
+      </div>
+      ${!current ? '<span class="text-[10px] font-bold text-emerald-400">Aktiv</span>' : '<span class="text-[10px] text-slate-400">Wechseln ➔</span>'}
+    </button>
+  `;
+
+  users.forEach((u) => {
+    const isAct = current && current.id === u.id;
+    const inits = (u.name || u.email || 'U').slice(0, 2).toUpperCase();
+    html += `
+      <button type="button" data-switch-user="${u.id}" class="w-full px-3 py-2 rounded-xl flex items-center justify-between text-left transition ${
+        isAct ? 'bg-emerald-500/15 border border-emerald-500 text-white' : 'bg-slate-900 border border-slate-800 text-slate-300 hover:border-slate-700'
+      }">
+        <div class="flex items-center gap-2 truncate pr-2">
+          <span class="w-6 h-6 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-slate-950 text-[10px] font-extrabold flex items-center justify-center shrink-0">${inits}</span>
+          <div class="truncate">
+            <div class="text-xs font-semibold truncate text-white">${escapeHtml(u.name || u.email)}</div>
+            <div class="text-[10px] text-slate-400 truncate">${escapeHtml(u.email)}</div>
+          </div>
+        </div>
+        ${isAct ? '<span class="text-[10px] font-bold text-emerald-400 shrink-0">Aktiv</span>' : '<span class="text-[10px] text-slate-400 shrink-0">Wechseln ➔</span>'}
+      </button>
+    `;
+  });
+
+  profileSwitchList.innerHTML = html;
+}
+
+function openAuthModal() {
+  clearAuthError();
+  renderAuthModalViews();
+  if (authModal) authModal.classList.remove('hidden');
+}
+
+function closeAuthModal() {
+  if (authModal) authModal.classList.add('hidden');
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  clearAuthError();
+  if (mode === 'register') {
+    if (authTabRegister) authTabRegister.className = 'py-2 px-3 rounded-xl bg-emerald-500 text-slate-950 font-bold transition';
+    if (authTabLogin) authTabLogin.className = 'py-2 px-3 rounded-xl text-slate-400 hover:text-white transition';
+    if (authNameWrapper) authNameWrapper.classList.remove('hidden');
+    if (authPasswordConfirmWrapper) authPasswordConfirmWrapper.classList.remove('hidden');
+    if (btnAuthSubmit) btnAuthSubmit.textContent = 'Konto erstellen';
+  } else {
+    if (authTabLogin) authTabLogin.className = 'py-2 px-3 rounded-xl bg-emerald-500 text-slate-950 font-bold transition';
+    if (authTabRegister) authTabRegister.className = 'py-2 px-3 rounded-xl text-slate-400 hover:text-white transition';
+    if (authNameWrapper) authNameWrapper.classList.add('hidden');
+    if (authPasswordConfirmWrapper) authPasswordConfirmWrapper.classList.add('hidden');
+    if (btnAuthSubmit) btnAuthSubmit.textContent = 'Jetzt anmelden';
+  }
+}
+
+function initAuthSystem() {
+  updateAuthHeaderIndicator();
+}
+
+// Event-Listeners für das Auth-System
+if (btnAuthModal) {
+  btnAuthModal.addEventListener('click', openAuthModal);
+}
+
+if (btnCloseAuthModal) {
+  btnCloseAuthModal.addEventListener('click', closeAuthModal);
+}
+
+if (authModal) {
+  authModal.addEventListener('click', (e) => {
+    if (e.target === authModal) closeAuthModal();
+  });
+}
+
+if (authTabLogin) {
+  authTabLogin.addEventListener('click', () => setAuthMode('login'));
+}
+
+if (authTabRegister) {
+  authTabRegister.addEventListener('click', () => setAuthMode('register'));
+}
+
+if (btnAuthPasskeyLogin) {
+  btnAuthPasskeyLogin.addEventListener('click', loginWithPasskey);
+}
+
+if (btnAuthGoogle) {
+  btnAuthGoogle.addEventListener('click', () => handleSocialLogin('google'));
+}
+
+if (btnAuthApple) {
+  btnAuthApple.addEventListener('click', () => handleSocialLogin('apple'));
+}
+
+if (btnToggleAuthPassword) {
+  btnToggleAuthPassword.addEventListener('click', () => {
+    if (!authPasswordInput) return;
+    const isPassword = authPasswordInput.type === 'password';
+    authPasswordInput.type = isPassword ? 'text' : 'password';
+    if (authPasswordConfirmInput) {
+      authPasswordConfirmInput.type = isPassword ? 'text' : 'password';
+    }
+    btnToggleAuthPassword.textContent = isPassword ? 'Verbergen' : 'Anzeigen';
+  });
+}
+
+if (authEmailForm) {
+  authEmailForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    handleEmailAuthSubmit();
+  });
+}
+
+if (btnAuthSubmit) {
+  btnAuthSubmit.addEventListener('click', (e) => {
+    e.preventDefault();
+    handleEmailAuthSubmit();
+  });
+}
+
+if (btnRegisterPasskey) {
+  btnRegisterPasskey.addEventListener('click', registerPasskeyForCurrentUser);
+}
+
+if (btnAuthLogout) {
+  btnAuthLogout.addEventListener('click', logoutUser);
+}
+
+if (btnAuthDeleteAccount) {
+  btnAuthDeleteAccount.addEventListener('click', async () => {
+    const current = getCurrentUser();
+    if (!current) return;
+    const ok = confirm(`Profil "${current.name || current.email}" wirklich von diesem Gerät entfernen?`);
+    if (!ok) return;
+
+    const users = getAuthUsers().filter((u) => u.id !== current.id);
+    saveAuthUsers(users);
+    localStorage.removeItem(`sellmate_profile_cfg_${current.id}`);
+    await logoutUser();
+    showToast('Profil von diesem Gerät entfernt');
+  });
+}
+
+if (profileSwitchList) {
+  profileSwitchList.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-switch-user]');
+    if (!btn) return;
+    const targetUserId = btn.dataset.switchUser;
+    const current = getCurrentUser();
+
+    if (targetUserId === 'guest') {
+      if (current) await logoutUser();
+      return;
+    }
+
+    if (current && current.id === targetUserId) return;
+
+    const users = getAuthUsers();
+    const targetUser = users.find((u) => u.id === targetUserId);
+    if (targetUser) {
+      await loginUser(targetUser, { migrateGuestData: false });
+      showToast(`✓ Zu Profil "${targetUser.name || targetUser.email}" gewechselt`);
+    }
+  });
+}
+
+if (btnToggleCloudConfig && authCloudConfigDetails) {
+  btnToggleCloudConfig.addEventListener('click', () => {
+    const isHidden = authCloudConfigDetails.classList.contains('hidden');
+    if (isHidden) {
+      authCloudConfigDetails.classList.remove('hidden');
+      if (cloudConfigChevron) cloudConfigChevron.style.transform = 'rotate(180deg)';
+    } else {
+      authCloudConfigDetails.classList.add('hidden');
+      if (cloudConfigChevron) cloudConfigChevron.style.transform = 'rotate(0deg)';
+    }
+  });
+}
+
+if (btnSaveCloudConfig) {
+  btnSaveCloudConfig.addEventListener('click', () => {
+    const supabaseUrl = (authSupabaseUrlInput?.value || '').trim();
+    const supabaseAnonKey = (authSupabaseAnonKeyInput?.value || '').trim();
+    saveCloudAuthConfig({ supabaseUrl, supabaseAnonKey });
+    showToast('✓ Cloud-OAuth Konfiguration gespeichert!');
   });
 }
