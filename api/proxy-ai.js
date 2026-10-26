@@ -357,10 +357,12 @@ export default async function handler(req, res) {
         }
 
         const candidateModels = [
-          targetModel,
-          'gemini-1.5-flash',
+          process.env.SERVER_AI_MODEL,
           'gemini-flash-latest',
-          'gemma-3-27b-it'
+          'gemini-3.5-flash-lite',
+          'gemini-3.1-flash-lite',
+          'gemini-3.8-flash',
+          'gemini-flash-lite-latest'
         ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
         let lastGemError = '';
