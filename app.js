@@ -372,20 +372,114 @@ function clearInviteStatus() {
   renderInviteCodeUI();
 }
 
+const FALLBACK_VERCEL_PROXY_URL = 'https://sellmate-ai.vercel.app/api/proxy-ai';
+
+async function callProxyApi(bodyObj, signal = undefined) {
+  const payloadWithPat = {
+    ...bodyObj,
+    clientGithubPat: getGithubPat() || undefined
+  };
+
+  // Wenn auf github.io gehostet, direkt die Vercel-Proxy-URL ansprechen
+  const isGithubPages = window.location.hostname.endsWith('github.io');
+  const primaryUrl = isGithubPages ? FALLBACK_VERCEL_PROXY_URL : '/api/proxy-ai';
+
+  let res;
+  try {
+    res = await fetch(primaryUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+      body: JSON.stringify(payloadWithPat)
+    });
+  } catch (netErr) {
+    // Falls relativer Aufruf scheitert (z.B. lokale Dev-Umgebung oder Domain-Mismatch), Fallback auf Vercel
+    if (primaryUrl !== FALLBACK_VERCEL_PROXY_URL) {
+      res = await fetch(FALLBACK_VERCEL_PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal,
+        body: JSON.stringify(payloadWithPat)
+      });
+    } else {
+      throw netErr;
+    }
+  }
+
+  // Falls relativer Pfad 404 liefert (z.B. lokaler statischer Server), Fallback auf Vercel
+  if (res.status === 404 && primaryUrl !== FALLBACK_VERCEL_PROXY_URL) {
+    res = await fetch(FALLBACK_VERCEL_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+      body: JSON.stringify(payloadWithPat)
+    });
+  }
+
+  return res;
+}
+
+// Meldet jeden Fehler automatisch als Ticket (über Server-Proxy an GitHub Issues & Vercel)
+async function reportErrorTicket({ category = 'App-Error', title = '', message = '', extra = {} }) {
+  const details = {
+    category,
+    title: title || message,
+    message,
+    inviteCode: getInviteCode() || null,
+    device: typeof getDeviceShortName === 'function' ? getDeviceShortName() : navigator.userAgent,
+    url: window.location.href,
+    timestamp: new Date().toISOString(),
+    ...extra
+  };
+
+  console.error('[SellMate Auto-Ticket]', details);
+
+  // 1. Falls lokales GitHub PAT vorhanden -> auch direkt an GitHub Diagnose-Issue melden
+  if (getGithubPat() && typeof sendGitHubTelemetryReport === 'function') {
+    sendGitHubTelemetryReport({
+      mode: `Auto-Ticket (${category})`,
+      status: 'ERROR',
+      summary: `**${title || category}:** \`${message}\``
+    }).catch(() => {});
+  }
+
+  // 2. An den Server-Proxy melden (nutzt GITHUB_PAT aus Vercel Env für alle Nutzer/Freunde)
+  try {
+    const res = await callProxyApi({
+      action: 'report_error',
+      payload: details
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data?.ticket?.url) {
+      console.log('[SellMate Auto-Ticket erstellt]', data.ticket.url);
+    }
+    return data?.ticket || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function verifyInviteCodeWithServer(code, showToastMsg = false) {
   const clean = String(code || '').trim().toUpperCase();
   if (!clean) return { valid: false, error: 'Bitte gib einen Code ein.' };
 
   try {
-    const res = await fetch('/api/proxy-ai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ inviteCode: clean, action: 'status' })
-    });
+    const res = await callProxyApi({ inviteCode: clean, action: 'status' });
     const data = await res.json().catch(() => ({}));
+
     if (!res.ok || !data.valid) {
-      const err = data.error || `Ungültiger Code (${res.status})`;
-      if (showToastMsg) showToast(err);
+      const err = data.error || `Code-Prüfung fehlgeschlagen (HTTP ${res.status})`;
+      if (inviteCodeStatusBadge) {
+        inviteCodeStatusBadge.textContent = '⚠️ Fehler (Ticket erstellt)';
+        inviteCodeStatusBadge.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40';
+      }
+      if (showToastMsg) showToast(`Fehler: ${err}`);
+      await reportErrorTicket({
+        category: 'Invite-Code',
+        title: `Invite-Code Fehler (${clean})`,
+        message: err,
+        extra: { httpStatus: res.status, serverResponse: data }
+      });
       return { valid: false, error: err };
     }
 
@@ -402,17 +496,14 @@ async function verifyInviteCodeWithServer(code, showToastMsg = false) {
     }
     return { valid: true, data };
   } catch (err) {
-    saveInviteStatus({
-      code: clean,
-      remainingCredits: 50,
-      totalCredits: 50,
-      label: 'Lokaler Test',
-      hasServerTavily: true
+    const msg = `Verbindungsfehler zum Server-Proxy: ${err.message}`;
+    if (showToastMsg) showToast(msg);
+    await reportErrorTicket({
+      category: 'Invite-Network',
+      title: `Proxy nicht erreichbar (${clean})`,
+      message: msg
     });
-    if (showToastMsg) {
-      showToast(`✓ Code "${clean}" lokal gespeichert`);
-    }
-    return { valid: true, offline: true };
+    return { valid: false, error: msg };
   }
 }
 
@@ -1572,12 +1663,19 @@ if (btnTestGithubPat) {
   });
 }
 
-// Fange auch unerwartete JavaScript-Laufzeitfehler global ab und melde sie an GitHub
+// Fange auch unerwartete JavaScript-Laufzeitfehler global ab und erstelle automatisch Tickets
 window.addEventListener('error', (event) => {
+  const errMsg = `${event.message || 'Unbekannter JS-Fehler'} (${event.filename || ''}:${event.lineno || ''})`;
   sendGitHubTelemetryReport({
     mode: 'Global JS Error',
     status: 'ERROR',
-    summary: `${event.message || 'Unbekannter JS-Fehler'} (${event.filename || ''}:${event.lineno || ''})`
+    summary: errMsg
+  });
+  reportErrorTicket({
+    category: 'JS-Runtime-Error',
+    title: event.message || 'Global JS Error',
+    message: errMsg,
+    extra: { filename: event.filename, lineno: event.lineno, colno: event.colno }
   });
 });
 
@@ -1587,6 +1685,11 @@ window.addEventListener('unhandledrejection', (event) => {
     mode: 'Unhandled Rejection',
     status: 'ERROR',
     summary: msg
+  });
+  reportErrorTicket({
+    category: 'Unhandled-Rejection',
+    title: msg.slice(0, 75),
+    message: msg
   });
 });
 
@@ -1749,11 +1852,8 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs || 28000);
     try {
-      const res = await fetch('/api/proxy-ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
+      const res = await callProxyApi(
+        {
           inviteCode: getInviteCode(),
           action: 'vision',
           deductCredit,
@@ -1764,12 +1864,19 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = 
             maxTokens,
             allowGeminiSearch
           }
-        })
-      });
+        },
+        controller.signal
+      );
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const errMsg = data?.error || `Server-Proxy Fehler (HTTP ${res.status})`;
+        reportErrorTicket({
+          category: 'Vision-Proxy',
+          title: `Vision-Proxy Fehler (HTTP ${res.status})`,
+          message: errMsg,
+          extra: { httpStatus: res.status, serverResponse: data }
+        });
         throw buildApiError(errMsg, res.status);
       }
 
@@ -1793,6 +1900,11 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = 
       };
     } catch (err) {
       addDiagLog(`Cloud-Proxy Fehler: ${err.message}`, 'error');
+      reportErrorTicket({
+        category: 'Vision-Proxy',
+        title: `Vision-Proxy Exception: ${err.message}`,
+        message: err.message
+      });
       throw err;
     } finally {
       clearTimeout(timer);
@@ -2015,21 +2127,25 @@ async function runTavilySearch(query, tavilyKey, maxResults = 5) {
     const timer = setTimeout(() => controller.abort(), 8000);
     const t0 = performance.now();
     try {
-      const res = await fetch('/api/proxy-ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
+      const res = await callProxyApi(
+        {
           inviteCode: getInviteCode(),
           action: 'tavily',
           payload: { query, maxResults }
-        })
-      });
+        },
+        controller.signal
+      );
       const data = await res.json().catch(() => ({}));
       const dur = ((performance.now() - t0) / 1000).toFixed(2);
       if (!res.ok) {
         const msg = data?.error || data?.detail || `Tavily Proxy HTTP ${res.status}`;
         addDiagLog(`Tavily Proxy Fehler (${dur}s): ${msg}`, 'warn');
+        reportErrorTicket({
+          category: 'Tavily-Proxy',
+          title: `Tavily Proxy Fehler (HTTP ${res.status})`,
+          message: msg,
+          extra: { query: query.slice(0, 100) }
+        });
         throw new Error(msg);
       }
       addDiagLog(`Tavily Proxy Treffer "${query.slice(0, 42)}..." -> ${(data.results || []).length} Treffer in ${dur}s`, 'success');
@@ -2383,6 +2499,12 @@ Antworte ausschließlich als valides JSON-Objekt (ohne umschließenden Markdown-
       mode: 'Einzel-Artikel',
       status: 'ERROR',
       summary: `Fehler: \`${err.message || 'Unbekannter Fehler'}\``
+    });
+    reportErrorTicket({
+      category: 'Single-Item-Analysis',
+      title: err.message ? err.message.slice(0, 75) : 'Analyse-Fehler',
+      message: err.message || 'Unbekannter Fehler bei der Einzel-Analyse',
+      extra: { platform: currentPlatform, imagesCount: uploadedImages.length }
     });
   } finally {
     loadingSection.classList.add('hidden');
@@ -3155,6 +3277,12 @@ async function runBatchAgentQueue() {
           mode: 'Batch-Agent',
           status: 'ERROR',
           summary: `Fehler: \`${nextItem.errorMsg}\``
+        });
+        reportErrorTicket({
+          category: 'Batch-Agent',
+          title: nextItem.errorMsg.slice(0, 75),
+          message: nextItem.errorMsg,
+          extra: { itemId: nextItem.id, userNotes: nextItem.userNotes }
         });
       }
 

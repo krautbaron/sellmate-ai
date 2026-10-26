@@ -1,7 +1,99 @@
 // api/proxy-ai.js – Vercel Serverless Function (Node.js runtime)
+// Unterstützt: Invite-Code Prüfung, KI-Proxy, Tavily-Proxy & Automatische GitHub Fehler-Tickets
+
+const GITHUB_REPO = 'krautbaron/sellmate-ai';
+
+function buildSupabaseHeaders(supabaseKey, extra = {}) {
+  const cleanKey = String(supabaseKey || '').trim();
+  const headers = {
+    'Content-Type': 'application/json',
+    apikey: cleanKey,
+    ...extra
+  };
+  // Klassische JWT-Keys beginnen mit "eyJ" -> Authorization Bearer mitsenden.
+  // Neue Supabase Keys ("sb_secret_..." / "sb_publishable_...") werden über "apikey" authentifiziert.
+  if (cleanKey.startsWith('eyJ')) {
+    headers.Authorization = `Bearer ${cleanKey}`;
+  }
+  return headers;
+}
+
+// Erstellt automatisch ein GitHub Issue (oder kommentiert ein bestehendes offenes Issue gleichen Titels)
+async function createAutoGitHubTicket({ title, category = 'Server-Error', message = '', details = {}, clientPat = '' }) {
+  const pat = (process.env.GITHUB_PAT || process.env.SERVER_GITHUB_PAT || clientPat || '').trim();
+  if (!pat) {
+    return { created: false, reason: 'Kein GITHUB_PAT in Vercel oder Client hinterlegt' };
+  }
+
+  const issueTitle = `🚨 [Auto-Ticket] ${category}: ${String(title || message).slice(0, 75)}`;
+  const bodyText = [
+    `### 🚨 Automatisch erfasstes Fehler-Ticket`,
+    `- **Zeitpunkt:** \`${new Date().toISOString()}\``,
+    `- **Kategorie:** \`${category}\``,
+    `- **Fehlermeldung:** \`${message}\``,
+    details.inviteCode ? `- **Verwendeter Invite-Code:** \`${details.inviteCode}\`` : '',
+    details.device ? `- **Gerät / Browser:** ${details.device}` : '',
+    details.url ? `- **URL:** \`${details.url}\`` : '',
+    '',
+    '#### Technische Diagnose-Daten',
+    '```json',
+    JSON.stringify(details, null, 2).slice(0, 3500),
+    '```'
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const ghHeaders = {
+    Authorization: `Bearer ${pat}`,
+    Accept: 'application/vnd.github+json',
+    'Content-Type': 'application/json',
+    'User-Agent': 'SellMate-AI-ErrorBot'
+  };
+
+  try {
+    // 1. Prüfe, ob bereits ein offenes Ticket mit diesem Titel existiert (Deduplizierung)
+    const listRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/issues?state=open&per_page=30`, {
+      headers: ghHeaders
+    });
+    if (listRes.ok) {
+      const issues = await listRes.json();
+      const existing = (issues || []).find((i) => i.title === issueTitle);
+      if (existing?.number) {
+        const commentRes = await fetch(
+          `https://api.github.com/repos/${GITHUB_REPO}/issues/${existing.number}/comments`,
+          {
+            method: 'POST',
+            headers: ghHeaders,
+            body: JSON.stringify({ body: bodyText })
+          }
+        );
+        const commentData = await commentRes.json().catch(() => ({}));
+        return { created: true, deduplicated: true, issueNumber: existing.number, url: commentData.html_url || existing.html_url };
+      }
+    }
+
+    // 2. Neues Issue anlegen
+    const createRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/issues`, {
+      method: 'POST',
+      headers: ghHeaders,
+      body: JSON.stringify({
+        title: issueTitle,
+        body: bodyText,
+        labels: ['bug']
+      })
+    });
+    const created = await createRes.json().catch(() => ({}));
+    if (!createRes.ok) {
+      return { created: false, reason: created?.message || `GitHub HTTP ${createRes.status}` };
+    }
+    return { created: true, issueNumber: created.number, url: created.html_url };
+  } catch (err) {
+    return { created: false, reason: err.message };
+  }
+}
 
 export default async function handler(req, res) {
-  // CORS Headers für PWA-Aufrufe
+  // CORS Headers (damit auch Aufrufe von krautbaron.github.io funktionieren)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -13,49 +105,141 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const {
+    inviteCode,
+    action = 'status',
+    deductCredit = false,
+    payload = {},
+    clientGithubPat = ''
+  } = req.body || {};
 
-  if (!supabaseUrl || !supabaseServiceKey) {
-    return res.status(500).json({
-      error: 'Server-Konfiguration unvollständig (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY fehlt in Vercel).'
+  // ---------------------------------------------------------------------------
+  // AKTION 0: Direktes Fehler-Ticket vom Client melden (action === 'report_error')
+  // ---------------------------------------------------------------------------
+  if (action === 'report_error') {
+    const ticket = await createAutoGitHubTicket({
+      title: payload.title || payload.message || 'Client-Fehler',
+      category: payload.category || 'Client-Error',
+      message: payload.message || 'Unbekannter Fehler',
+      details: payload,
+      clientPat: clientGithubPat
     });
+    return res.status(200).json({ ok: true, ticket });
   }
 
-  const { inviteCode, action = 'status', deductCredit = false, payload = {} } = req.body || {};
-  const cleanCode = String(inviteCode || '').trim().toUpperCase();
+  const supabaseUrl = (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  const supabaseServiceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 
+  if (!supabaseUrl || !supabaseServiceKey) {
+    const errMsg = 'Server-Konfiguration unvollständig: SUPABASE_URL oder SUPABASE_SERVICE_ROLE_KEY fehlt in Vercel (oder Redeploy nötig).';
+    const ticket = await createAutoGitHubTicket({
+      title: 'Supabase Env-Variablen fehlen in Vercel',
+      category: 'Config-Error',
+      message: errMsg,
+      details: { hasUrl: Boolean(supabaseUrl), hasKey: Boolean(supabaseServiceKey), action },
+      clientPat: clientGithubPat
+    });
+    return res.status(500).json({ error: errMsg, ticket });
+  }
+
+  const cleanCode = String(inviteCode || '').trim().toUpperCase();
   if (!cleanCode) {
     return res.status(401).json({ error: 'Bitte gib zuerst einen gültigen Einladungscode ein.' });
   }
 
-  // Hilfsfunktion: Supabase RPC consume_invite_credit aufrufen
+  // Hilfsfunktion: Prüft & bucht Credits ab (Versucht erst RPC, fällt bei Bedarf automatisch auf direkten Tabellen-Zugriff zurück!)
   async function checkOrConsumeCredit(amount) {
+    // 1. Versuch: Über RPC-Funktion consume_invite_credit
     const rpcRes = await fetch(`${supabaseUrl}/rest/v1/rpc/consume_invite_credit`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: supabaseServiceKey,
-        Authorization: `Bearer ${supabaseServiceKey}`
-      },
+      headers: buildSupabaseHeaders(supabaseServiceKey),
       body: JSON.stringify({ p_code: cleanCode, p_amount: amount })
     });
 
-    const data = await rpcRes.json().catch(() => ({}));
-    if (!rpcRes.ok) {
-      throw new Error(data?.message || `Supabase RPC Fehler (${rpcRes.status})`);
+    if (rpcRes.ok) {
+      const rpcData = await rpcRes.json().catch(() => ({}));
+      if (rpcData && typeof rpcData.valid === 'boolean') {
+        return rpcData;
+      }
     }
-    return data;
+
+    // 2. Fallback: Direkte Abfrage der Tabelle public.invite_codes über REST
+    // (Funktioniert selbst dann, wenn die RPC-Funktion in Supabase fehlt oder sb_secret_ Key genutzt wird)
+    const tableUrl = `${supabaseUrl}/rest/v1/invite_codes?select=*`;
+    const listRes = await fetch(tableUrl, {
+      method: 'GET',
+      headers: buildSupabaseHeaders(supabaseServiceKey)
+    });
+
+    const listData = await listRes.json().catch(() => null);
+    if (!listRes.ok) {
+      const detailMsg = listData?.message || listData?.error || listData?.hint || `HTTP ${listRes.status}`;
+      throw new Error(`Supabase Zugriff fehlgeschlagen (${detailMsg}). Prüfe SUPABASE_URL und SUPABASE_SERVICE_ROLE_KEY.`);
+    }
+
+    const rows = Array.isArray(listData) ? listData : [];
+    const matched = rows.find((r) => String(r.code || '').trim().toUpperCase() === cleanCode);
+
+    if (!matched) {
+      return {
+        valid: false,
+        error: `Einladungscode "${cleanCode}" wurde in der Supabase-Tabelle invite_codes nicht gefunden (Vorhandene Codes: ${rows.length}).`
+      };
+    }
+
+    if (matched.is_active === false) {
+      return { valid: false, error: 'Dieser Einladungscode wurde deaktiviert.' };
+    }
+
+    const total = Number(matched.credits_total ?? 50);
+    const used = Number(matched.credits_used ?? 0);
+
+    if (used + amount > total) {
+      return {
+        valid: false,
+        error: `Test-Guthaben (${total} Analysen) für Code "${cleanCode}" ist aufgebraucht.`,
+        remainingCredits: Math.max(0, total - used),
+        totalCredits: total
+      };
+    }
+
+    let newUsed = used;
+    if (amount > 0) {
+      newUsed = used + amount;
+      await fetch(`${supabaseUrl}/rest/v1/invite_codes?code=eq.${encodeURIComponent(matched.code)}`, {
+        method: 'PATCH',
+        headers: buildSupabaseHeaders(supabaseServiceKey, { Prefer: 'return=minimal' }),
+        body: JSON.stringify({
+          credits_used: newUsed,
+          last_used_at: new Date().toISOString()
+        })
+      });
+    }
+
+    return {
+      valid: true,
+      code: matched.code,
+      label: matched.label || 'Freunde-Beta',
+      remainingCredits: Math.max(0, total - newUsed),
+      totalCredits: total
+    };
   }
 
   try {
     // -------------------------------------------------------------------------
-    // AKTION 1: Nur Status & Rest-Credits abfragen (0 Credits Abzug)
+    // AKTION 1: Status & Rest-Credits abfragen
     // -------------------------------------------------------------------------
     if (action === 'status') {
       const statusData = await checkOrConsumeCredit(0);
       if (!statusData.valid) {
-        return res.status(403).json(statusData);
+        const ticket = await createAutoGitHubTicket({
+          title: `Invite-Code abgelehnt (${cleanCode})`,
+          category: 'Invite-Code',
+          message: statusData.error || 'Ungültiger Code',
+          details: { inviteCode: cleanCode, statusData },
+          clientPat: clientGithubPat
+        });
+        return res.status(403).json({ ...statusData, ticket });
       }
       return res.status(200).json({
         ...statusData,
@@ -64,10 +248,10 @@ export default async function handler(req, res) {
     }
 
     // -------------------------------------------------------------------------
-    // AKTION 2: Tavily Live-Websuche über Server-Key (0 Credits Abzug, prüft aber Gültigkeit)
+    // AKTION 2: Tavily Live-Websuche
     // -------------------------------------------------------------------------
     if (action === 'tavily') {
-      const tavilyKey = process.env.SERVER_TAVILY_API_KEY || '';
+      const tavilyKey = (process.env.SERVER_TAVILY_API_KEY || '').trim();
       if (!tavilyKey) {
         return res.status(400).json({ error: 'Kein SERVER_TAVILY_API_KEY auf dem Server hinterlegt.' });
       }
@@ -103,16 +287,23 @@ export default async function handler(req, res) {
     }
 
     // -------------------------------------------------------------------------
-    // AKTION 3: Vision / KI-Analyse über Server-Key (1 Credit Abzug bei deductCredit=true)
+    // AKTION 3: Vision / KI-Analyse über Server-Key
     // -------------------------------------------------------------------------
     if (action === 'vision') {
-      const provider = (process.env.SERVER_AI_PROVIDER || 'gemini').toLowerCase();
-      const apiKey = process.env.SERVER_AI_API_KEY || '';
+      const provider = (process.env.SERVER_AI_PROVIDER || 'gemini').toLowerCase().trim();
+      const apiKey = (process.env.SERVER_AI_API_KEY || '').trim();
       if (!apiKey) {
-        return res.status(500).json({ error: 'SERVER_AI_API_KEY fehlt in den Vercel Environment Variables.' });
+        const msg = 'SERVER_AI_API_KEY fehlt in den Vercel Environment Variables.';
+        const ticket = await createAutoGitHubTicket({
+          title: msg,
+          category: 'Config-Error',
+          message: msg,
+          details: { provider, inviteCode: cleanCode },
+          clientPat: clientGithubPat
+        });
+        return res.status(500).json({ error: msg, ticket });
       }
 
-      // Erst prüfen, ob noch Guthaben da ist (0 Abzug vor dem Call, damit bei KI-Fehler kein Credit verloren geht!)
       const preCheck = await checkOrConsumeCredit(0);
       if (!preCheck.valid) {
         return res.status(403).json(preCheck);
@@ -132,7 +323,7 @@ export default async function handler(req, res) {
       let groundingMetadata = null;
 
       if (provider === 'gemini') {
-        const model = process.env.SERVER_AI_MODEL || 'gemini-2.5-flash-lite';
+        const model = (process.env.SERVER_AI_MODEL || 'gemini-2.5-flash-lite').trim();
         const parts = [
           ...(images || []).slice(0, 4).map((img) => ({
             inline_data: { mime_type: img.mimeType || 'image/jpeg', data: img.base64 }
@@ -162,9 +353,15 @@ export default async function handler(req, res) {
         );
         const gemData = await gemRes.json().catch(() => ({}));
         if (!gemRes.ok) {
-          return res.status(gemRes.status).json({
-            error: gemData?.error?.message || `Gemini Server-Fehler (${gemRes.status})`
+          const errMsg = gemData?.error?.message || `Gemini Server-Fehler (${gemRes.status})`;
+          const ticket = await createAutoGitHubTicket({
+            title: `Gemini API Fehler (${gemRes.status})`,
+            category: 'AI-Provider',
+            message: errMsg,
+            details: { model, status: gemRes.status, inviteCode: cleanCode },
+            clientPat: clientGithubPat
           });
+          return res.status(gemRes.status).json({ error: errMsg, ticket });
         }
 
         const cand = gemData?.candidates?.[0];
@@ -173,14 +370,13 @@ export default async function handler(req, res) {
         usedSearch = Boolean(allowGeminiSearch);
         groundingMetadata = cand?.groundingMetadata || null;
       } else {
-        // OpenAI-kompatibler Server-Provider (Neuralwatt, OpenRouter, Groq)
         const defaultUrls = {
           neuralwatt: 'https://api.neuralwatt.com/v1',
           openrouter: 'https://openrouter.ai/api/v1',
           groq: 'https://api.groq.com/openai/v1'
         };
         const baseUrl = (process.env.SERVER_AI_BASE_URL || defaultUrls[provider] || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
-        const model = process.env.SERVER_AI_MODEL || (provider === 'openrouter' ? 'google/gemini-2.5-flash' : 'gemma-4-31b');
+        const model = (process.env.SERVER_AI_MODEL || (provider === 'openrouter' ? 'google/gemini-2.5-flash' : 'gemma-4-31b')).trim();
 
         let userContent = userPrompt;
         if (images && images.length > 0) {
@@ -214,9 +410,15 @@ export default async function handler(req, res) {
 
         const oaiData = await oaiRes.json().catch(() => ({}));
         if (!oaiRes.ok) {
-          return res.status(oaiRes.status).json({
-            error: oaiData?.error?.message || `KI-Server-Fehler (${oaiRes.status})`
+          const errMsg = oaiData?.error?.message || `KI-Server-Fehler (${oaiRes.status})`;
+          const ticket = await createAutoGitHubTicket({
+            title: `OpenAI-Compatible API Fehler (${oaiRes.status})`,
+            category: 'AI-Provider',
+            message: errMsg,
+            details: { provider, model, status: oaiRes.status, inviteCode: cleanCode },
+            clientPat: clientGithubPat
           });
+          return res.status(oaiRes.status).json({ error: errMsg, ticket });
         }
 
         rawText = oaiData?.choices?.[0]?.message?.content || '';
@@ -227,7 +429,6 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Leere Antwort vom KI-Modell.' });
       }
 
-      // Nach erfolgreicher KI-Antwort Credit abziehen (wenn Hauptanalyse)
       const afterCredit = await checkOrConsumeCredit(deductCredit ? 1 : 0);
 
       return res.status(200).json({
@@ -241,6 +442,13 @@ export default async function handler(req, res) {
 
     return res.status(400).json({ error: `Unbekannte Aktion: ${action}` });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Interner Serverfehler' });
+    const ticket = await createAutoGitHubTicket({
+      title: err.message || 'Unbehandelte Proxy-Exception',
+      category: 'Backend-Exception',
+      message: err.message || 'Interner Serverfehler',
+      details: { action, inviteCode: cleanCode, stack: err.stack },
+      clientPat: clientGithubPat
+    });
+    return res.status(500).json({ error: err.message || 'Interner Serverfehler', ticket });
   }
 }
