@@ -323,13 +323,14 @@ export default async function handler(req, res) {
       let groundingMetadata = null;
 
       if (provider === 'gemini') {
-        const configuredModel = (process.env.SERVER_AI_MODEL || 'gemini-2.0-flash').trim();
+        const configuredModel = (process.env.SERVER_AI_MODEL || 'gemini-3.8-flash').trim();
         const candidateModels = [
           configuredModel,
-          'gemini-2.0-flash',
+          'gemini-3.8-flash',
+          'gemini-3.5-flash-lite',
           'gemini-2.5-flash',
-          'gemini-1.5-flash',
-          'gemini-2.0-flash-001'
+          'gemini-2.0-flash',
+          'gemini-1.5-flash'
         ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
         const parts = [
