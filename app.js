@@ -161,6 +161,13 @@ const btnTestGithubPat = document.getElementById('btnTestGithubPat');
 const githubPatStatusHint = document.getElementById('githubPatStatusHint');
 const apiKeyStatusDot = document.getElementById('apiKeyStatusDot');
 const activeProviderHeaderLabel = document.getElementById('activeProviderHeaderLabel');
+const btnLockAdmin = document.getElementById('btnLockAdmin');
+const adminAuthModal = document.getElementById('adminAuthModal');
+const adminAuthForm = document.getElementById('adminAuthForm');
+const adminAuthPasswordInput = document.getElementById('adminAuthPasswordInput');
+const adminAuthError = document.getElementById('adminAuthError');
+const btnCancelAdminAuth = document.getElementById('btnCancelAdminAuth');
+const btnSubmitAdminAuth = document.getElementById('btnSubmitAdminAuth');
 
 // Einladungscode & Friends-Beta DOM-Elemente
 const inviteCodeInput = document.getElementById('inviteCodeInput');
@@ -907,8 +914,99 @@ document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => switchAdminTab(btn.dataset.admintab));
 });
 
+let pendingAdminTargetTab = 'providers';
+
+function isAdminUnlocked() {
+  return sessionStorage.getItem('sellmate_admin_unlocked') === 'true';
+}
+
+function lockAdmin() {
+  sessionStorage.removeItem('sellmate_admin_unlocked');
+  if (settingsModal) settingsModal.classList.add('hidden');
+  if (adminAuthModal) adminAuthModal.classList.add('hidden');
+  showToast('🔒 Admin-Bereich gesperrt.');
+}
+
+function requestAdminAccess(targetTab = 'providers') {
+  pendingAdminTargetTab = targetTab || 'providers';
+  if (isAdminUnlocked()) {
+    openAdminModal(pendingAdminTargetTab);
+  } else {
+    openAdminAuthModal();
+  }
+}
+
+function openAdminAuthModal() {
+  if (!adminAuthModal) {
+    openAdminModal(pendingAdminTargetTab);
+    return;
+  }
+  if (adminAuthPasswordInput) {
+    adminAuthPasswordInput.value = '';
+  }
+  if (adminAuthError) {
+    adminAuthError.classList.add('hidden');
+    adminAuthError.textContent = '';
+  }
+  adminAuthModal.classList.remove('hidden');
+  setTimeout(() => {
+    if (adminAuthPasswordInput) adminAuthPasswordInput.focus();
+  }, 100);
+}
+
+async function verifyAndUnlockAdmin(password) {
+  if (!password) {
+    if (adminAuthError) {
+      adminAuthError.textContent = 'Bitte gib das Admin-Passwort ein.';
+      adminAuthError.classList.remove('hidden');
+    }
+    return;
+  }
+
+  if (adminAuthError) adminAuthError.classList.add('hidden');
+  if (btnSubmitAdminAuth) {
+    btnSubmitAdminAuth.disabled = true;
+    btnSubmitAdminAuth.innerHTML = '<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i><span>Prüfe...</span>';
+    if (window.lucide) lucide.createIcons();
+  }
+
+  try {
+    const res = await callProxyApi({
+      action: 'verify_admin',
+      payload: { password }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.valid) {
+      sessionStorage.setItem('sellmate_admin_unlocked', 'true');
+      if (adminAuthModal) adminAuthModal.classList.add('hidden');
+      openAdminModal(pendingAdminTargetTab || 'providers');
+      showToast('🔓 Admin-Bereich entsperrt!');
+    } else {
+      if (adminAuthError) {
+        adminAuthError.textContent = data.error || 'Ungültiges Admin-Passwort.';
+        adminAuthError.classList.remove('hidden');
+      }
+      if (adminAuthPasswordInput) {
+        adminAuthPasswordInput.focus();
+        adminAuthPasswordInput.select();
+      }
+    }
+  } catch (err) {
+    if (adminAuthError) {
+      adminAuthError.textContent = 'Verbindungsfehler bei der Passwortprüfung.';
+      adminAuthError.classList.remove('hidden');
+    }
+  } finally {
+    if (btnSubmitAdminAuth) {
+      btnSubmitAdminAuth.disabled = false;
+      btnSubmitAdminAuth.innerHTML = '<i data-lucide="unlock" class="w-3.5 h-3.5"></i><span>Entsperren</span>';
+      if (window.lucide) lucide.createIcons();
+    }
+  }
+}
+
 if (btnAdminPanel) {
-  btnAdminPanel.addEventListener('click', () => openAdminModal('providers'));
+  btnAdminPanel.addEventListener('click', () => requestAdminAccess('providers'));
 }
 
 if (btnUnlockOrStatus) {
@@ -917,8 +1015,26 @@ if (btnUnlockOrStatus) {
       pinUnlockModal.classList.remove('hidden');
       pinUnlockInput.focus();
     } else {
-      openAdminModal('providers');
+      requestAdminAccess('providers');
     }
+  });
+}
+
+if (btnLockAdmin) {
+  btnLockAdmin.addEventListener('click', lockAdmin);
+}
+
+if (btnCancelAdminAuth && adminAuthModal) {
+  btnCancelAdminAuth.addEventListener('click', () => {
+    adminAuthModal.classList.add('hidden');
+  });
+}
+
+if (adminAuthForm) {
+  adminAuthForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const val = adminAuthPasswordInput ? adminAuthPasswordInput.value.trim() : '';
+    verifyAndUnlockAdmin(val);
   });
 }
 
@@ -1128,7 +1244,7 @@ function checkAndImportUrlHashSync() {
     }
   } else if (hash === '#admin') {
     history.replaceState(null, '', window.location.pathname + window.location.search);
-    setTimeout(() => openAdminModal('providers'), 200);
+    setTimeout(() => requestAdminAccess('providers'), 200);
   } else {
     // Falls kein Key auf dem Gerät ist, aber ein verschlüsselter PIN-Tresor existiert -> PIN-Abfrage öffnen
     setTimeout(() => {

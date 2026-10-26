@@ -665,9 +665,15 @@
             <p class="text-[11px] text-slate-400">KI-Anbieter, Live-Suche, QR-Sync & System-Prompts</p>
           </div>
         </div>
-        <button id="btnCloseSettings" class="p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
+        <div class="flex items-center gap-2">
+          <button id="btnLockAdmin" title="Admin-Bereich sperren" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-semibold transition active:scale-95">
+            <i data-lucide="lock" class="w-3.5 h-3.5"></i>
+            <span>Sperren</span>
+          </button>
+          <button id="btnCloseSettings" class="p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
       </div>
 
       <!-- Admin Sub-Navigation Tabs -->
@@ -1006,6 +1012,46 @@
         </div>
 
       </div>
+    </div>
+  </div>
+
+  <!-- Modal: Admin-Passwort Login -->
+  <div id="adminAuthModal" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-white/10 rounded-3xl max-w-sm w-full p-5 sm:p-6 space-y-4 shadow-2xl text-center">
+      <div class="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 mx-auto flex items-center justify-center">
+        <i data-lucide="shield-check" class="w-6 h-6"></i>
+      </div>
+      <div class="space-y-1">
+        <h3 class="font-bold text-base text-white">SellMate Admin-Bereich</h3>
+        <p class="text-xs text-slate-400">Dieser Bereich ist geschützt. Bitte gib das Admin-Passwort ein.</p>
+      </div>
+      <form id="adminAuthForm" class="space-y-3" onsubmit="return false;">
+        <input
+          type="password"
+          id="adminAuthPasswordInput"
+          placeholder="Admin-Passwort..."
+          autocomplete="current-password"
+          class="w-full text-center text-sm font-semibold tracking-wider rounded-2xl bg-slate-950 border border-slate-800 px-4 py-3 text-white focus:border-amber-400 focus:outline-none"
+        />
+        <p id="adminAuthError" class="hidden text-xs text-rose-400 font-medium"></p>
+        <div class="flex gap-2 pt-1">
+          <button
+            type="button"
+            id="btnCancelAdminAuth"
+            class="flex-1 py-2.5 rounded-xl border border-white/10 text-xs font-bold text-slate-300 hover:bg-slate-800 transition"
+          >
+            Abbrechen
+          </button>
+          <button
+            type="submit"
+            id="btnSubmitAdminAuth"
+            class="flex-1 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold transition shadow-md shadow-amber-400/20 flex items-center justify-center gap-1.5"
+          >
+            <i data-lucide="unlock" class="w-3.5 h-3.5"></i>
+            <span>Entsperren</span>
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -1381,6 +1427,6 @@
     <span id="toastText">Kopiert!</span>
   </div>
 
-  <script src="app.js?v=27"></script>
+  <script src="app.js?v=28"></script>
 </body>
 </html>

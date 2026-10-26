@@ -127,6 +127,18 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, ticket });
   }
 
+  if (action === 'verify_admin') {
+    const serverAdminPassword = (process.env.ADMIN_PASSWORD || 'KrautMate!2026').trim();
+    const entered = String(payload?.password || '').trim();
+    if (!entered) {
+      return res.status(400).json({ valid: false, error: 'Bitte ein Passwort eingeben.' });
+    }
+    if (entered === serverAdminPassword) {
+      return res.status(200).json({ valid: true, message: 'Admin autorisiert.' });
+    }
+    return res.status(401).json({ valid: false, error: 'Falsches Admin-Passwort.' });
+  }
+
   if (action === 'list_models') {
     const apiKey = (process.env.SERVER_AI_API_KEY || '').trim();
     const mRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
