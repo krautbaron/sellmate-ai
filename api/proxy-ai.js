@@ -357,10 +357,11 @@ export default async function handler(req, res) {
         }
 
         const candidateModels = [
-          'gemini-3.5-flash-lite',
+          'gemini-2.5-flash',
           'gemini-flash-latest',
-          'gemini-3.1-flash-lite',
-          'gemini-3.8-flash'
+          'gemini-2.5-flash-lite',
+          'gemini-flash-lite-latest',
+          'gemini-2.5-pro'
         ];
 
         let lastGemError = '';
@@ -370,7 +371,10 @@ export default async function handler(req, res) {
           const isGemma = candidateModel.toLowerCase().startsWith('gemma');
           const body = {
             contents: [{ role: 'user', parts: isGemma ? [{ text: systemPrompt + '\n\n' }, ...parts] : parts }],
-            generationConfig: { temperature: 0.2 }
+            generationConfig: {
+              temperature: 0.2,
+              thinkingConfig: { thinkingBudget: 0 }
+            }
           };
           if (!isGemma) {
             body.system_instruction = { parts: [{ text: systemPrompt }] };
