@@ -400,15 +400,15 @@ export default async function handler(req, res) {
         }
 
         if (!rawText) {
-          const lastGemError = gemData?.error?.message || `Gemini Fehler (${gemRes.status})`;
+          const finalErrMsg = lastGemError || `Gemini Fehler (${lastGemStatus})`;
           const ticket = await createAutoGitHubTicket({
-            title: `Gemini API Fehler (${gemRes.status})`,
+            title: `Gemini API Fehler (${lastGemStatus})`,
             category: 'AI-Provider',
-            message: lastGemError,
-            details: { targetModel, status: gemRes.status, inviteCode: cleanCode },
+            message: finalErrMsg,
+            details: { targetModel, status: lastGemStatus, inviteCode: cleanCode },
             clientPat: clientGithubPat
           });
-          return res.status(gemRes.status).json({ error: lastGemError, ticket });
+          return res.status(lastGemStatus).json({ error: finalErrMsg, ticket });
         }
       } else {
         const defaultUrls = {
