@@ -323,7 +323,15 @@ export default async function handler(req, res) {
       let groundingMetadata = null;
 
       if (provider === 'gemini') {
-        const model = (process.env.SERVER_AI_MODEL || 'gemini-2.5-flash-lite').trim();
+        const configuredModel = (process.env.SERVER_AI_MODEL || 'gemini-2.0-flash').trim();
+        const candidateModels = [
+          configuredModel,
+          'gemini-2.0-flash',
+          'gemini-2.5-flash',
+          'gemini-1.5-flash',
+          'gemini-2.0-flash-001'
+        ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+
         const parts = [
           ...(images || []).slice(0, 4).map((img) => ({
             inline_data: { mime_type: img.mimeType || 'image/jpeg', data: img.base64 }
@@ -343,32 +351,74 @@ export default async function handler(req, res) {
           body.generationConfig.responseMimeType = 'application/json';
         }
 
-        const gemRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
+        let lastGemError = '';
+        let lastGemStatus = 500;
+
+        for (const candidateModel of candidateModels) {
+          const gemRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${encodeURIComponent(apiKey)}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body)
+            }
+          );
+          const gemData = await gemRes.json().catch(() => ({}));
+
+          if (gemRes.ok) {
+            const cand = gemData?.candidates?.[0];
+            rawText = (cand?.content?.parts || []).map((p) => p.text || '').join('\n').trim();
+            if (rawText) {
+              usedModel = `Cloud (${candidateModel})`;
+              usedSearch = Boolean(allowGeminiSearch);
+              groundingMetadata = cand?.groundingMetadata || null;
+              break;
+            }
           }
-        );
-        const gemData = await gemRes.json().catch(() => ({}));
-        if (!gemRes.ok) {
-          const errMsg = gemData?.error?.message || `Gemini Server-Fehler (${gemRes.status})`;
-          const ticket = await createAutoGitHubTicket({
-            title: `Gemini API Fehler (${gemRes.status})`,
-            category: 'AI-Provider',
-            message: errMsg,
-            details: { model, status: gemRes.status, inviteCode: cleanCode },
-            clientPat: clientGithubPat
-          });
-          return res.status(gemRes.status).json({ error: errMsg, ticket });
+
+          lastGemStatus = gemRes.status;
+          lastGemError = gemData?.error?.message || `Gemini Server-Fehler (${gemRes.status})`;
+
+          // Bei 404 (Modell nicht verfügbar) sofort nächstes Modell probieren
+          if (gemRes.status === 404) {
+            continue;
+          } else {
+            // Bei 400 oder 429 ohne Google Search nochmals ohne Search probieren
+            if (allowGeminiSearch && (gemRes.status === 400 || gemRes.status === 429)) {
+              const bodyNoSearch = { ...body, tools: undefined };
+              bodyNoSearch.generationConfig = { ...body.generationConfig, responseMimeType: 'application/json' };
+              const retryRes = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${encodeURIComponent(apiKey)}`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(bodyNoSearch)
+                }
+              );
+              const retryData = await retryRes.json().catch(() => ({}));
+              if (retryRes.ok) {
+                const cand = retryData?.candidates?.[0];
+                rawText = (cand?.content?.parts || []).map((p) => p.text || '').join('\n').trim();
+                if (rawText) {
+                  usedModel = `Cloud (${candidateModel})`;
+                  usedSearch = false;
+                  break;
+                }
+              }
+            }
+          }
         }
 
-        const cand = gemData?.candidates?.[0];
-        rawText = (cand?.content?.parts || []).map((p) => p.text || '').join('\n').trim();
-        usedModel = `Cloud (${model})`;
-        usedSearch = Boolean(allowGeminiSearch);
-        groundingMetadata = cand?.groundingMetadata || null;
+        if (!rawText) {
+          const ticket = await createAutoGitHubTicket({
+            title: `Gemini API Fehler (${lastGemStatus})`,
+            category: 'AI-Provider',
+            message: lastGemError,
+            details: { triedModels: candidateModels, status: lastGemStatus, inviteCode: cleanCode },
+            clientPat: clientGithubPat
+          });
+          return res.status(lastGemStatus).json({ error: lastGemError, ticket });
+        }
       } else {
         const defaultUrls = {
           neuralwatt: 'https://api.neuralwatt.com/v1',
