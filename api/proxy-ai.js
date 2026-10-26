@@ -357,11 +357,8 @@ export default async function handler(req, res) {
         }
 
         const candidateModels = [
-          'gemini-2.5-flash',
-          'gemini-flash-latest',
-          'gemini-2.5-flash-lite',
-          'gemini-flash-lite-latest',
-          'gemini-2.5-pro'
+          'gemini-3.5-flash-lite',
+          'gemini-3.8-flash'
         ];
 
         let lastGemError = '';
@@ -371,10 +368,7 @@ export default async function handler(req, res) {
           const isGemma = candidateModel.toLowerCase().startsWith('gemma');
           const body = {
             contents: [{ role: 'user', parts: isGemma ? [{ text: systemPrompt + '\n\n' }, ...parts] : parts }],
-            generationConfig: {
-              temperature: 0.2,
-              thinkingConfig: { thinkingBudget: 0 }
-            }
+            generationConfig: { temperature: 0.2 }
           };
           if (!isGemma) {
             body.system_instruction = { parts: [{ text: systemPrompt }] };
@@ -385,35 +379,23 @@ export default async function handler(req, res) {
             }
           }
 
-          let gemRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${encodeURIComponent(apiKey)}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body)
-            }
-          );
-          let gemData = await gemRes.json().catch(() => ({}));
-
-          // Falls Search oder JSON 400/429/503 liefert, sofort nochmals einfacher probieren
-          if (!gemRes.ok && !isGemma && (allowGeminiSearch || gemRes.status === 400 || gemRes.status === 429)) {
-            const bodyPlain = {
-              contents: [{ role: 'user', parts: [{ text: systemPrompt + '\n\n' }, ...parts] }],
-              generationConfig: { temperature: 0.2 }
-            };
-            const retryRes = await fetch(
+          let gemRes;
+          let gemData;
+          try {
+            gemRes = await fetch(
               `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${encodeURIComponent(apiKey)}`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(bodyPlain)
+                body: JSON.stringify(body),
+                signal: AbortSignal.timeout(10000)
               }
             );
-            const retryData = await retryRes.json().catch(() => ({}));
-            if (retryRes.ok) {
-              gemRes = retryRes;
-              gemData = retryData;
-            }
+            gemData = await gemRes.json().catch(() => ({}));
+          } catch (fetchErr) {
+            lastGemStatus = 504;
+            lastGemError = `Timeout bei Modell ${candidateModel}: ${fetchErr.message}`;
+            continue;
           }
 
           if (gemRes.ok) {
