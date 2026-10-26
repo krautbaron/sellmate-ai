@@ -1850,7 +1850,7 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = 
     addDiagLog(`Cloud-Proxy Vision-Request (Code: "${getInviteCode()}", Bilder: ${images.length}, Credit-Abzug: ${deductCredit})...`);
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs || 28000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 35000);
     try {
       const res = await callProxyApi(
         {
@@ -2231,7 +2231,7 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
       userPrompt: queryGenPrompt,
       images,
       maxTokens: 200,
-      timeoutMs: 11000,
+      timeoutMs: 25000,
       allowGeminiSearch: false,
       deductCredit: false,
       onStatusUpdate
@@ -2468,7 +2468,7 @@ Antworte ausschließlich als valides JSON-Objekt (ohne umschließenden Markdown-
       userPrompt: fullUserPrompt,
       images: uploadedImages,
       maxTokens: 1300,
-      timeoutMs: 24000,
+      timeoutMs: 35000,
       allowGeminiSearch: useSearch && !tavilyData,
       deductCredit: true,
       onStatusUpdate: (msg) => {

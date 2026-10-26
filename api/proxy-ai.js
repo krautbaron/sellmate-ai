@@ -361,9 +361,15 @@ export default async function handler(req, res) {
           'gemini-flash-latest',
           'gemini-3.5-flash-lite',
           'gemini-3.1-flash-lite',
-          'gemini-3.8-flash',
-          'gemini-flash-lite-latest'
-        ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+          'gemini-3.8-flash'
+        ]
+          .filter(Boolean)
+          .filter(m => !m.includes('2.0') && !m.includes('2.5'))
+          .filter((m, idx, arr) => arr.indexOf(m) === idx);
+
+        if (candidateModels.length === 0) {
+          candidateModels.push('gemini-flash-latest');
+        }
 
         let lastGemError = '';
         let lastGemStatus = 500;
