@@ -349,39 +349,54 @@ export default async function handler(req, res) {
           body.generationConfig.responseMimeType = 'application/json';
         }
 
-        let gemRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${encodeURIComponent(apiKey)}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-          }
-        );
-        let gemData = await gemRes.json().catch(() => ({}));
+        const candidateModels = [
+          targetModel,
+          'gemini-1.5-flash',
+          'gemini-flash-latest'
+        ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
-        // Falls Search 400 liefert, sofort nochmals ohne Search probieren
-        if (!gemRes.ok && allowGeminiSearch && (gemRes.status === 400 || gemRes.status === 429)) {
-          const bodyNoSearch = { ...body, tools: undefined };
-          bodyNoSearch.generationConfig = { ...body.generationConfig, responseMimeType: 'application/json' };
-          gemRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        let lastGemError = '';
+        let lastGemStatus = 500;
+
+        for (const candidateModel of candidateModels) {
+          let gemRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${encodeURIComponent(apiKey)}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(bodyNoSearch)
+              body: JSON.stringify(body)
             }
           );
-          gemData = await gemRes.json().catch(() => ({}));
-        }
+          let gemData = await gemRes.json().catch(() => ({}));
 
-        if (gemRes.ok) {
-          const cand = gemData?.candidates?.[0];
-          rawText = (cand?.content?.parts || []).map((p) => p.text || '').join('\n').trim();
-          if (rawText) {
-            usedModel = `Cloud (${targetModel})`;
-            usedSearch = Boolean(allowGeminiSearch && gemRes.ok);
-            groundingMetadata = cand?.groundingMetadata || null;
+          // Falls Search 400/429 liefert, sofort nochmals ohne Search probieren
+          if (!gemRes.ok && allowGeminiSearch && (gemRes.status === 400 || gemRes.status === 429)) {
+            const bodyNoSearch = { ...body, tools: undefined };
+            bodyNoSearch.generationConfig = { ...body.generationConfig, responseMimeType: 'application/json' };
+            gemRes = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${encodeURIComponent(apiKey)}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(bodyNoSearch)
+              }
+            );
+            gemData = await gemRes.json().catch(() => ({}));
           }
+
+          if (gemRes.ok) {
+            const cand = gemData?.candidates?.[0];
+            rawText = (cand?.content?.parts || []).map((p) => p.text || '').join('\n').trim();
+            if (rawText) {
+              usedModel = `Cloud (${candidateModel})`;
+              usedSearch = Boolean(allowGeminiSearch && gemRes.ok);
+              groundingMetadata = cand?.groundingMetadata || null;
+              break;
+            }
+          }
+
+          lastGemStatus = gemRes.status;
+          lastGemError = gemData?.error?.message || `Gemini Fehler (${gemRes.status})`;
         }
 
         if (!rawText) {
