@@ -162,6 +162,15 @@ const githubPatStatusHint = document.getElementById('githubPatStatusHint');
 const apiKeyStatusDot = document.getElementById('apiKeyStatusDot');
 const activeProviderHeaderLabel = document.getElementById('activeProviderHeaderLabel');
 
+// Einladungscode & Friends-Beta DOM-Elemente
+const inviteCodeInput = document.getElementById('inviteCodeInput');
+const btnActivateInviteCode = document.getElementById('btnActivateInviteCode');
+const btnClearInviteCode = document.getElementById('btnClearInviteCode');
+const inviteCodeStatusBadge = document.getElementById('inviteCodeStatusBadge');
+const inviteShareBox = document.getElementById('inviteShareBox');
+const inviteRemainingHint = document.getElementById('inviteRemainingHint');
+const btnCopyInviteShareLink = document.getElementById('btnCopyInviteShareLink');
+
 // Optionaler verschlüsselter Tresor-String (AES-256-GCM). Wenn befüllt, fragt das Handy beim Start nur nach der kurzen PIN!
 const DEFAULT_ENCRYPTED_VAULT = '';
 
@@ -325,6 +334,116 @@ function getTavilyApiKey() {
 
 function getGithubPat() {
   return (localStorage.getItem('sellmate_github_pat') || '').trim();
+}
+
+function getInviteCode() {
+  return (localStorage.getItem('sellmate_invite_code') || '').trim().toUpperCase();
+}
+
+function isInviteModeActive() {
+  return Boolean(getInviteCode());
+}
+
+function hasAiAccess() {
+  return Boolean(getApiKey()) || isInviteModeActive();
+}
+
+function hasSearchAccess() {
+  return Boolean(getTavilyApiKey()) || (isInviteModeActive() && localStorage.getItem('sellmate_invite_has_tavily') === 'true');
+}
+
+function saveInviteStatus({ code, remainingCredits, totalCredits, label, hasServerTavily = true }) {
+  if (code) localStorage.setItem('sellmate_invite_code', String(code).trim().toUpperCase());
+  if (typeof remainingCredits === 'number') localStorage.setItem('sellmate_invite_remaining', String(remainingCredits));
+  if (typeof totalCredits === 'number') localStorage.setItem('sellmate_invite_total', String(totalCredits));
+  if (label) localStorage.setItem('sellmate_invite_label', label);
+  localStorage.setItem('sellmate_invite_has_tavily', String(Boolean(hasServerTavily)));
+  updateApiKeyIndicator();
+  renderInviteCodeUI();
+}
+
+function clearInviteStatus() {
+  localStorage.removeItem('sellmate_invite_code');
+  localStorage.removeItem('sellmate_invite_remaining');
+  localStorage.removeItem('sellmate_invite_total');
+  localStorage.removeItem('sellmate_invite_label');
+  localStorage.removeItem('sellmate_invite_has_tavily');
+  updateApiKeyIndicator();
+  renderInviteCodeUI();
+}
+
+async function verifyInviteCodeWithServer(code, showToastMsg = false) {
+  const clean = String(code || '').trim().toUpperCase();
+  if (!clean) return { valid: false, error: 'Bitte gib einen Code ein.' };
+
+  try {
+    const res = await fetch('/api/proxy-ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inviteCode: clean, action: 'status' })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.valid) {
+      const err = data.error || `Ungültiger Code (${res.status})`;
+      if (showToastMsg) showToast(err);
+      return { valid: false, error: err };
+    }
+
+    saveInviteStatus({
+      code: clean,
+      remainingCredits: data.remainingCredits,
+      totalCredits: data.totalCredits,
+      label: data.label,
+      hasServerTavily: data.hasServerTavily
+    });
+
+    if (showToastMsg) {
+      showToast(`✓ Einladungscode "${clean}" aktiv (${data.remainingCredits} / ${data.totalCredits} Analysen)!`);
+    }
+    return { valid: true, data };
+  } catch (err) {
+    saveInviteStatus({
+      code: clean,
+      remainingCredits: 50,
+      totalCredits: 50,
+      label: 'Lokaler Test',
+      hasServerTavily: true
+    });
+    if (showToastMsg) {
+      showToast(`✓ Code "${clean}" lokal gespeichert`);
+    }
+    return { valid: true, offline: true };
+  }
+}
+
+function renderInviteCodeUI() {
+  const code = getInviteCode();
+  const remaining = localStorage.getItem('sellmate_invite_remaining');
+  const total = localStorage.getItem('sellmate_invite_total');
+  const label = localStorage.getItem('sellmate_invite_label') || '';
+
+  if (inviteCodeInput) {
+    inviteCodeInput.value = code;
+  }
+
+  if (code) {
+    if (inviteCodeStatusBadge) {
+      inviteCodeStatusBadge.textContent = remaining ? `🟢 Aktiv: ${remaining} / ${total || 50} frei` : `🟢 Aktiv (${code})`;
+      inviteCodeStatusBadge.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+    }
+    if (btnClearInviteCode) btnClearInviteCode.classList.remove('hidden');
+    if (inviteShareBox) inviteShareBox.classList.remove('hidden');
+    if (inviteRemainingHint) {
+      inviteRemainingHint.textContent = `🎟️ ${remaining || '?'} von ${total || '?'} Analysen übrig${label ? ` (${label})` : ''}`;
+    }
+  } else {
+    if (inviteCodeStatusBadge) {
+      inviteCodeStatusBadge.textContent = 'Kein Code aktiv';
+      inviteCodeStatusBadge.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-900 border border-white/10 text-slate-400';
+    }
+    if (btnClearInviteCode) btnClearInviteCode.classList.add('hidden');
+    if (inviteShareBox) inviteShareBox.classList.add('hidden');
+  }
 }
 
 function getSystemPrompt(platform) {
@@ -548,14 +667,36 @@ function loadSettings() {
   if (toggleProviderFallback) {
     toggleProviderFallback.checked = isFallbackEnabled();
   }
+  renderInviteCodeUI();
   updateApiKeyIndicator();
+
+  // Bei vorhandenem Einladungscode im Hintergrund Status/Credits prüfen
+  if (getInviteCode()) {
+    verifyInviteCodeWithServer(getInviteCode(), false).catch(() => {});
+  }
 }
 
 function updateApiKeyIndicator() {
+  const inviteCode = getInviteCode();
   const activeProv = getActiveProvider();
   const hasKey = Boolean(getProviderApiKey(activeProv));
   const hasTavily = Boolean(getTavilyApiKey());
   const meta = PROVIDERS[activeProv] || PROVIDERS.neuralwatt;
+  const btnTavilyQuickStatus = document.getElementById('btnTavilyQuickStatus');
+
+  if (inviteCode && !hasKey) {
+    const remaining = localStorage.getItem('sellmate_invite_remaining');
+    if (activeProviderHeaderLabel) {
+      activeProviderHeaderLabel.textContent = remaining ? `🎟️ ${remaining} Credits` : '🎟️ Invite aktiv';
+    }
+    apiKeyStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+    if (btnTavilyQuickStatus) {
+      btnTavilyQuickStatus.textContent = '🟢 Cloud-Websuche aktiv';
+      btnTavilyQuickStatus.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition';
+    }
+    return;
+  }
+
   if (activeProviderHeaderLabel) {
     activeProviderHeaderLabel.textContent = hasKey
       ? `${meta.name}${hasTavily ? ' + Tavily' : ''}`
@@ -567,7 +708,6 @@ function updateApiKeyIndicator() {
     apiKeyStatusDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
   }
 
-  const btnTavilyQuickStatus = document.getElementById('btnTavilyQuickStatus');
   if (btnTavilyQuickStatus) {
     if (hasTavily) {
       btnTavilyQuickStatus.textContent = '🟢 Tavily-Key aktiv';
@@ -577,6 +717,46 @@ function updateApiKeyIndicator() {
       btnTavilyQuickStatus.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 animate-pulse transition';
     }
   }
+}
+
+// Event Listeners für Einladungscodes (Freunde-Beta)
+if (btnActivateInviteCode) {
+  btnActivateInviteCode.addEventListener('click', async () => {
+    const val = (inviteCodeInput?.value || '').trim().toUpperCase();
+    if (!val) {
+      showToast('Bitte einen Code eingeben');
+      return;
+    }
+    btnActivateInviteCode.disabled = true;
+    btnActivateInviteCode.textContent = 'Prüfe...';
+    try {
+      await verifyInviteCodeWithServer(val, true);
+    } finally {
+      btnActivateInviteCode.disabled = false;
+      btnActivateInviteCode.textContent = 'Aktivieren';
+    }
+  });
+}
+
+if (btnClearInviteCode) {
+  btnClearInviteCode.addEventListener('click', () => {
+    clearInviteStatus();
+    if (inviteCodeInput) inviteCodeInput.value = '';
+    showToast('Einladungscode entfernt');
+  });
+}
+
+if (btnCopyInviteShareLink) {
+  btnCopyInviteShareLink.addEventListener('click', () => {
+    const code = getInviteCode() || (inviteCodeInput?.value || '').trim();
+    if (!code) {
+      showToast('Bitte zuerst einen Code aktivieren');
+      return;
+    }
+    const base = window.location.href.split('#')[0].split('?')[0];
+    const link = `${base}#invite=${encodeURIComponent(code)}`;
+    copyToClipboard(link, `Einladungs-Link für "${code}" kopiert!`);
+  });
 }
 
 const btnTavilyQuickStatusEl = document.getElementById('btnTavilyQuickStatus');
@@ -825,6 +1005,23 @@ function buildMagicSyncUrl() {
 
 function checkAndImportUrlHashSync() {
   const hash = window.location.hash || '';
+  const searchParams = new URLSearchParams(window.location.search);
+  const queryInvite = searchParams.get('invite');
+
+  // 1. Einladungslink für Freunde (#invite=CODE oder ?invite=CODE)
+  if (hash.startsWith('#invite=') || queryInvite) {
+    const rawCode = queryInvite || hash.replace(/^#invite=/, '');
+    const code = decodeURIComponent(rawCode).trim().toUpperCase();
+    if (code) {
+      history.replaceState(null, '', window.location.pathname);
+      verifyInviteCodeWithServer(code, true).then(() => {
+        updateApiKeyIndicator();
+        renderInviteCodeUI();
+      });
+      return;
+    }
+  }
+
   if (hash.startsWith('#sync=')) {
     try {
       const encoded = hash.slice(6);
@@ -844,7 +1041,7 @@ function checkAndImportUrlHashSync() {
   } else {
     // Falls kein Key auf dem Gerät ist, aber ein verschlüsselter PIN-Tresor existiert -> PIN-Abfrage öffnen
     setTimeout(() => {
-      if (!getApiKey() && getVaultString() && pinUnlockModal) {
+      if (!hasAiAccess() && getVaultString() && pinUnlockModal) {
         pinUnlockModal.classList.remove('hidden');
       }
     }, 300);
@@ -1541,10 +1738,70 @@ async function callOpenAICompatibleVision({ provider, baseUrl, apiKey, model, sy
   };
 }
 
-async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = [], maxTokens = 1400, timeoutMs = 24000, allowGeminiSearch = false, onStatusUpdate = null }) {
+async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = [], maxTokens = 1400, timeoutMs = 24000, allowGeminiSearch = false, deductCredit = true, onStatusUpdate = null }) {
+  // Wenn ein Einladungscode aktiv ist und kein eigener API-Key hinterlegt wurde -> über Vercel Cloud-Proxy leiten
+  if (isInviteModeActive() && !getApiKey()) {
+    if (onStatusUpdate) {
+      onStatusUpdate('Sende Anfrage an sicheren Cloud-Proxy...');
+    }
+    addDiagLog(`Cloud-Proxy Vision-Request (Code: "${getInviteCode()}", Bilder: ${images.length}, Credit-Abzug: ${deductCredit})...`);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 28000);
+    try {
+      const res = await fetch('/api/proxy-ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          inviteCode: getInviteCode(),
+          action: 'vision',
+          deductCredit,
+          payload: {
+            systemPrompt,
+            userPrompt,
+            images,
+            maxTokens,
+            allowGeminiSearch
+          }
+        })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const errMsg = data?.error || `Server-Proxy Fehler (HTTP ${res.status})`;
+        throw buildApiError(errMsg, res.status);
+      }
+
+      if (data.creditStatus && typeof data.creditStatus.remainingCredits === 'number') {
+        saveInviteStatus({
+          code: getInviteCode(),
+          remainingCredits: data.creditStatus.remainingCredits,
+          totalCredits: data.creditStatus.totalCredits,
+          label: data.creditStatus.label,
+          hasServerTavily: localStorage.getItem('sellmate_invite_has_tavily') === 'true'
+        });
+      }
+
+      addDiagLog(`Cloud-Proxy OK: Modell ${data.usedModel}, Rest-Credits: ${localStorage.getItem('sellmate_invite_remaining') || '-'}`, 'success');
+
+      return {
+        rawText: data.rawText,
+        usedModel: data.usedModel,
+        usedSearch: Boolean(data.usedSearch),
+        groundingMetadata: data.groundingMetadata || null
+      };
+    } catch (err) {
+      addDiagLog(`Cloud-Proxy Fehler: ${err.message}`, 'error');
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   const providersToTry = await resolveProviderCandidates();
   if (providersToTry.length === 0) {
-    throw new Error('Kein API-Key hinterlegt. Bitte oben rechts auf den Admin-Button (⚙️) klicken und deinen API-Key (z.B. für Neuralwatt oder Gemini) speichern.');
+    throw new Error('Kein API-Key oder Einladungscode hinterlegt. Bitte oben rechts auf den Admin-Button (⚙️) klicken und einen Code oder API-Key speichern.');
   }
 
   const errorLog = [];
@@ -1752,6 +2009,41 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = 
 // ============================================================================
 
 async function runTavilySearch(query, tavilyKey, maxResults = 5) {
+  // Falls kein eigener Key, aber Invite-Code vorhanden ist -> über Vercel Cloud-Proxy suchen
+  if (!tavilyKey && isInviteModeActive()) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const t0 = performance.now();
+    try {
+      const res = await fetch('/api/proxy-ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          inviteCode: getInviteCode(),
+          action: 'tavily',
+          payload: { query, maxResults }
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      const dur = ((performance.now() - t0) / 1000).toFixed(2);
+      if (!res.ok) {
+        const msg = data?.error || data?.detail || `Tavily Proxy HTTP ${res.status}`;
+        addDiagLog(`Tavily Proxy Fehler (${dur}s): ${msg}`, 'warn');
+        throw new Error(msg);
+      }
+      addDiagLog(`Tavily Proxy Treffer "${query.slice(0, 42)}..." -> ${(data.results || []).length} Treffer in ${dur}s`, 'success');
+      return data;
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        addDiagLog(`Tavily Proxy Timeout (>8s) für "${query.slice(0, 35)}..."`, 'warn');
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 7500);
   const t0 = performance.now();
@@ -1791,7 +2083,8 @@ async function runTavilySearch(query, tavilyKey, maxResults = 5) {
 // Stufe 1 + 2: Extrahiert NUR reine optische Merkmale (OHNE Namens-Halluzination!) und sucht damit bei Tavily nach dem echten Produkt
 async function performTavilyVisualResearch({ images, notes = '', onStatusUpdate = null }) {
   const tavilyKey = getTavilyApiKey();
-  if (!tavilyKey) return null;
+  const hasAccess = Boolean(tavilyKey) || (isInviteModeActive() && localStorage.getItem('sellmate_invite_has_tavily') === 'true');
+  if (!hasAccess) return null;
 
   try {
     if (onStatusUpdate) {
@@ -1824,6 +2117,7 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
       maxTokens: 200,
       timeoutMs: 11000,
       allowGeminiSearch: false,
+      deductCredit: false,
       onStatusUpdate
     });
 
@@ -1978,10 +2272,9 @@ STRENGE ANWEISUNG FÜR DEN ABGLEICH VON FOTO & WEB-QUELLEN:
 
 // Main AI Generation Call (Single Item View)
 btnGenerate.addEventListener('click', async () => {
-  const apiKey = getApiKey();
-  if (!apiKey) {
+  if (!hasAiAccess()) {
     settingsModal.classList.remove('hidden');
-    showToast('Bitte zuerst deinen API-Key (z.B. Neuralwatt oder Gemini) eingeben');
+    showToast('Bitte zuerst einen Einladungscode oder API-Key eingeben');
     return;
   }
 
@@ -1999,16 +2292,16 @@ btnGenerate.addEventListener('click', async () => {
 
   try {
     const totalKb = uploadedImages.reduce((acc, i) => acc + (i.sizeKb || Math.round((i.base64.length * 3) / 4 / 1024)), 0);
-    const hasTavilyKey = Boolean(getTavilyApiKey());
-    addDiagLog(`Start: ${uploadedImages.length} Foto(s) (${totalKb} KB), Plattform: ${PLATFORM_META[currentPlatform].name}, Tavily-Key: ${hasTavilyKey ? 'aktiv ✓' : 'NICHT hinterlegt!'}`);
+    const hasSearch = hasSearchAccess();
+    addDiagLog(`Start: ${uploadedImages.length} Foto(s) (${totalKb} KB), Plattform: ${PLATFORM_META[currentPlatform].name}, Suche: ${hasSearch ? 'aktiv ✓' : 'aus'}`);
 
     const systemPrompt = getSystemPrompt(currentPlatform);
     const useSearch = toggleGoogleSearch.checked;
     const loadingSubtext = document.getElementById('loadingSubtext');
 
-    // Falls Tavily API-Key vorhanden und Web-Recherche aktiv: 2-Stufen Live-Recherche ausführen!
+    // Falls Tavily API-Key oder Cloud-Proxy vorhanden und Web-Recherche aktiv: 2-Stufen Live-Recherche ausführen!
     let tavilyData = null;
-    if (useSearch && hasTavilyKey) {
+    if (useSearch && hasSearch) {
       tavilyData = await performTavilyVisualResearch({
         images: uploadedImages,
         notes,
@@ -2016,8 +2309,8 @@ btnGenerate.addEventListener('click', async () => {
           if (loadingSubtext) loadingSubtext.textContent = msg;
         }
       });
-    } else if (useSearch && !hasTavilyKey) {
-      addDiagLog('WARNUNG: Kein Tavily API-Key im Admin-Menü (⚙️) gespeichert! Ohne Tavily rät das Modell ohne Websuche.', 'warn');
+    } else if (useSearch && !hasSearch) {
+      addDiagLog('WARNUNG: Kein Tavily API-Key hinterlegt – Modell analysiert ohne Live-Webdaten.', 'warn');
     }
 
     const outputFormatInstructions = `
@@ -2061,6 +2354,7 @@ Antworte ausschließlich als valides JSON-Objekt (ohne umschließenden Markdown-
       maxTokens: 1300,
       timeoutMs: 24000,
       allowGeminiSearch: useSearch && !tavilyData,
+      deductCredit: true,
       onStatusUpdate: (msg) => {
         if (loadingSubtext) {
           loadingSubtext.textContent = tavilyData ? `Stufe 3/3: Erstelle Verkaufstext (${msg})...` : msg;
@@ -2683,10 +2977,9 @@ if (btnClearStaging) {
 
 // Kamera-Aufnahme: Sammelt erst für den aktuellen Artikel (damit man noch ein 2. Foto vom Typenschild machen kann!)
 async function handleBatchCameraCapture(files, startNewItem = false) {
-  const apiKey = getApiKey();
-  if (!apiKey) {
+  if (!hasAiAccess()) {
     settingsModal.classList.remove('hidden');
-    showToast('Bitte zuerst einen API-Key hinterlegen');
+    showToast('Bitte zuerst einen Einladungscode oder API-Key hinterlegen');
     return;
   }
 
@@ -2709,10 +3002,9 @@ async function handleBatchCameraCapture(files, startNewItem = false) {
 
 // Galerie-Auswahl: Mehrere Fotos aus der Galerie als einzelne Artikel in die Hintergrund-Queue werfen
 async function enqueueBatchFiles(files) {
-  const apiKey = getApiKey();
-  if (!apiKey) {
+  if (!hasAiAccess()) {
     settingsModal.classList.remove('hidden');
-    showToast('Bitte zuerst einen API-Key hinterlegen');
+    showToast('Bitte zuerst einen Einladungscode oder API-Key hinterlegen');
     return;
   }
 
@@ -2821,8 +3113,7 @@ if (btnClearBatchAll) {
 // Hintergrund-Agent: Arbeitet alle 'queued' Artikel der Reihe nach ab (mit Multi-Provider Support & Rate-Limit Schutz)
 async function runBatchAgentQueue() {
   if (isBatchWorkerRunning) return;
-  const apiKey = getApiKey();
-  if (!apiKey) return;
+  if (!hasAiAccess()) return;
 
   isBatchWorkerRunning = true;
 
@@ -2882,9 +3173,9 @@ async function analyzeSingleBatchItemWithAgent(imgArrayOrSingle, userNotes = '')
   const itemImages = Array.isArray(imgArrayOrSingle) ? imgArrayOrSingle : [imgArrayOrSingle];
   const systemPrompt = getSystemPrompt(currentPlatform);
 
-  // Wenn Tavily API-Key hinterlegt ist, macht auch der Hintergrund-Agent für alle Fotos des Artikels die 2-Stufen-Webrecherche!
+  // Wenn Tavily API-Key oder Cloud-Proxy hinterlegt ist, macht auch der Hintergrund-Agent für alle Fotos des Artikels die 2-Stufen-Webrecherche!
   let tavilyData = null;
-  if (getTavilyApiKey()) {
+  if (hasSearchAccess()) {
     tavilyData = await performTavilyVisualResearch({
       images: itemImages,
       notes: userNotes,
@@ -2930,7 +3221,8 @@ Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit diesen Feldern:
     images: itemImages,
     maxTokens: 1300,
     timeoutMs: 15000,
-    allowGeminiSearch: false
+    allowGeminiSearch: false,
+    deductCredit: true
   });
 
   const match = (aiRes.rawText || '').match(/\{[\s\S]*\}/);

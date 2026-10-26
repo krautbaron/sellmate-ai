@@ -1,9 +1,9 @@
 // Netzwerk zuerst, Cache nur als Offline-Fallback – so bekommt das Handy Updates ohne Strg+F5
-const CACHE_NAME = 'sellmate-pwa-v24';
+const CACHE_NAME = 'sellmate-pwa-v25';
 const ASSETS = [
   './',
   './index.html',
-  './app.js?v=24',
+  './app.js?v=25',
   './manifest.json',
   './icon.svg'
 ];
@@ -26,8 +26,9 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  // Nur eigene GET-Dateien behandeln; API-Aufrufe & CDNs gehen direkt ans Netz
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  const url = new URL(req.url);
+  // Nur eigene GET-Dateien behandeln; API-Aufrufe (/api/) & CDNs gehen direkt ans Netz
+  if (req.method !== 'GET' || url.origin !== self.location.origin || url.pathname.includes('/api/')) return;
 
   event.respondWith(
     fetch(req, { cache: 'no-store' })
