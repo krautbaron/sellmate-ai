@@ -325,24 +325,10 @@ export default async function handler(req, res) {
       if (provider === 'gemini') {
         let targetModel = (process.env.SERVER_AI_MODEL || '').trim();
 
-        // Falls kein Modell fest gewählt oder veraltetes Lite/2.0 Modell: Ermittle in 250ms die aktiven Modelle des Keys
-        if (!targetModel || targetModel.includes('lite') || targetModel.includes('2.0')) {
-          try {
-            const mListRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
-            if (mListRes.ok) {
-              const mListData = await mListRes.json();
-              const flashModels = (mListData.models || [])
-                .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
-                .map((m) => m.name.replace(/^models\//, ''))
-                .filter((name) => name.toLowerCase().includes('flash') && !name.includes('tts') && !name.includes('embed') && !name.includes('audio'));
-
-              if (flashModels.length > 0) {
-                targetModel = flashModels.find((m) => m.includes('2.5') || m.includes('3.8') || m.includes('1.5')) || flashModels[0];
-              }
-            }
-          } catch (_) {}
+        // Standardmäßig gemini-3.8-flash nutzen (von Google für neue Keys gefordert)
+        if (!targetModel || targetModel.includes('2.5') || targetModel.includes('lite') || targetModel.includes('2.0')) {
+          targetModel = 'gemini-3.8-flash';
         }
-        if (!targetModel) targetModel = 'gemini-1.5-flash';
 
         const parts = [
           ...(images || []).slice(0, 4).map((img) => ({
