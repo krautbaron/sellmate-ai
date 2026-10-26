@@ -323,15 +323,26 @@ export default async function handler(req, res) {
       let groundingMetadata = null;
 
       if (provider === 'gemini') {
-        const configuredModel = (process.env.SERVER_AI_MODEL || 'gemini-3.8-flash').trim();
-        const candidateModels = [
-          configuredModel,
-          'gemini-3.8-flash',
-          'gemini-3.5-flash-lite',
-          'gemini-2.5-flash',
-          'gemini-2.0-flash',
-          'gemini-1.5-flash'
-        ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+        let targetModel = (process.env.SERVER_AI_MODEL || '').trim();
+
+        // Falls kein Modell fest gewählt oder veraltetes Lite/2.0 Modell: Ermittle in 250ms die aktiven Modelle des Keys
+        if (!targetModel || targetModel.includes('lite') || targetModel.includes('2.0')) {
+          try {
+            const mListRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
+            if (mListRes.ok) {
+              const mListData = await mListRes.json();
+              const flashModels = (mListData.models || [])
+                .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+                .map((m) => m.name.replace(/^models\//, ''))
+                .filter((name) => name.toLowerCase().includes('flash') && !name.includes('tts') && !name.includes('embed') && !name.includes('audio'));
+
+              if (flashModels.length > 0) {
+                targetModel = flashModels.find((m) => m.includes('2.5') || m.includes('3.8') || m.includes('1.5')) || flashModels[0];
+              }
+            }
+          } catch (_) {}
+        }
+        if (!targetModel) targetModel = 'gemini-1.5-flash';
 
         const parts = [
           ...(images || []).slice(0, 4).map((img) => ({
@@ -352,73 +363,51 @@ export default async function handler(req, res) {
           body.generationConfig.responseMimeType = 'application/json';
         }
 
-        let lastGemError = '';
-        let lastGemStatus = 500;
+        let gemRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${encodeURIComponent(apiKey)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          }
+        );
+        let gemData = await gemRes.json().catch(() => ({}));
 
-        for (const candidateModel of candidateModels) {
-          const gemRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        // Falls Search 400 liefert, sofort nochmals ohne Search probieren
+        if (!gemRes.ok && allowGeminiSearch && (gemRes.status === 400 || gemRes.status === 429)) {
+          const bodyNoSearch = { ...body, tools: undefined };
+          bodyNoSearch.generationConfig = { ...body.generationConfig, responseMimeType: 'application/json' };
+          gemRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${encodeURIComponent(apiKey)}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body)
+              body: JSON.stringify(bodyNoSearch)
             }
           );
-          const gemData = await gemRes.json().catch(() => ({}));
+          gemData = await gemRes.json().catch(() => ({}));
+        }
 
-          if (gemRes.ok) {
-            const cand = gemData?.candidates?.[0];
-            rawText = (cand?.content?.parts || []).map((p) => p.text || '').join('\n').trim();
-            if (rawText) {
-              usedModel = `Cloud (${candidateModel})`;
-              usedSearch = Boolean(allowGeminiSearch);
-              groundingMetadata = cand?.groundingMetadata || null;
-              break;
-            }
-          }
-
-          lastGemStatus = gemRes.status;
-          lastGemError = gemData?.error?.message || `Gemini Server-Fehler (${gemRes.status})`;
-
-          // Bei 404 (Modell nicht verfügbar) sofort nächstes Modell probieren
-          if (gemRes.status === 404) {
-            continue;
-          } else {
-            // Bei 400 oder 429 ohne Google Search nochmals ohne Search probieren
-            if (allowGeminiSearch && (gemRes.status === 400 || gemRes.status === 429)) {
-              const bodyNoSearch = { ...body, tools: undefined };
-              bodyNoSearch.generationConfig = { ...body.generationConfig, responseMimeType: 'application/json' };
-              const retryRes = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${encodeURIComponent(apiKey)}`,
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(bodyNoSearch)
-                }
-              );
-              const retryData = await retryRes.json().catch(() => ({}));
-              if (retryRes.ok) {
-                const cand = retryData?.candidates?.[0];
-                rawText = (cand?.content?.parts || []).map((p) => p.text || '').join('\n').trim();
-                if (rawText) {
-                  usedModel = `Cloud (${candidateModel})`;
-                  usedSearch = false;
-                  break;
-                }
-              }
-            }
+        if (gemRes.ok) {
+          const cand = gemData?.candidates?.[0];
+          rawText = (cand?.content?.parts || []).map((p) => p.text || '').join('\n').trim();
+          if (rawText) {
+            usedModel = `Cloud (${targetModel})`;
+            usedSearch = Boolean(allowGeminiSearch && gemRes.ok);
+            groundingMetadata = cand?.groundingMetadata || null;
           }
         }
 
         if (!rawText) {
+          const lastGemError = gemData?.error?.message || `Gemini Fehler (${gemRes.status})`;
           const ticket = await createAutoGitHubTicket({
-            title: `Gemini API Fehler (${lastGemStatus})`,
+            title: `Gemini API Fehler (${gemRes.status})`,
             category: 'AI-Provider',
             message: lastGemError,
-            details: { triedModels: candidateModels, status: lastGemStatus, inviteCode: cleanCode },
+            details: { targetModel, status: gemRes.status, inviteCode: cleanCode },
             clientPat: clientGithubPat
           });
-          return res.status(lastGemStatus).json({ error: lastGemError, ticket });
+          return res.status(gemRes.status).json({ error: lastGemError, ticket });
         }
       } else {
         const defaultUrls = {
