@@ -2188,13 +2188,13 @@ async function handleFiles(files) {
   if (!fileArray.length) return;
 
   for (const file of fileArray) {
-    const compressed = await compressImage(file, 800, 0.76);
+    const compressed = await compressImage(file, 1024, 0.82);
     uploadedImages.push(compressed);
   }
   renderImagePreviews();
 }
 
-function compressImage(file, maxDimension = 800, quality = 0.76) {
+function compressImage(file, maxDimension = 1024, quality = 0.82) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -3127,6 +3127,7 @@ STRENGE REGELN:
 - KEIN HINTERGRUND / KEIN TISCH: Beschreibe NIEMALS den Untergrund oder Hintergrund (NICHT "liegt auf Holztisch", NICHT "auf Holzoberfläche", NICHT "in der Hand")!
 - RATE NIEMALS EINE MARKE WIE "McDonald's", "Happy Meal", "Disney", "Ü-Ei" ODER EINEN CHARAKTERNAMEN (wie "Leo Lausemaus", "Simba"), wenn dieser Name NICHT buchstäblich als lesbarer Text auf dem Artikel abgedruckt ist!
 - WICHTIG BEI FIGUREN: Kleine handbemalte Kunststoff-Figuren, die auf einem Sockel, Podest oder einem Stapel Bücher/Blöcken stehen, sind fast immer "Tonie Hörfiguren" (Tonies). Wenn eine Figur auf flachen rechteckigen Stapeln steht, sind das "Bücher" (Bücherstapel) und ein flacher Gegenstand in der Pfote ist ein "Buch / Brief" mit "Stift / Feder".
+- ACHTUNG BEI FIGUREN AUF BÜCHERN: Eine orangefarbene Figur mit braunen Zacken/Mähne um den Kopf, die auf einem Bücherstapel steht und Stift/Buch hält, ist IMMER ein LÖWE (Tonie Hörfigur "Die Geschichte vom Löwen, der nicht schreiben konnte" nach Martin Baltscheit) – verwechsle die braune Comic-Mähne NIEMALS mit Stacheln oder einem Hund! Setze mainSubject zwingend auf "Löwe"!
 
 Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
 {
@@ -3172,11 +3173,18 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
         .trim();
 
     const readTxt = stripHallucinations(qObj.readableBrandOrText).split(/\s+/).slice(0, 7).join(' ');
-    const subj = stripHallucinations(qObj.mainSubject).split(/\s+/).slice(0, 3).join(' ');
+    let subj = stripHallucinations(qObj.mainSubject).split(/\s+/).slice(0, 3).join(' ');
     // Falls das Modell bei einer Figur Bücher als "Blöcke" bezeichnet hat, ergänze "Bücher" für die Suche
     let props = stripHallucinations(qObj.poseAndProps).split(/\s+/).slice(0, 6).join(' ');
     if (isFig && /bl[öo]ck|stapel/i.test(props) && !/b[üu]ch/i.test(props)) {
       props = `${props} Bücher`;
+    }
+
+    // Automatische Korrektur für den Baltscheit-Löwen ("Die Geschichte vom Löwen, der nicht schreiben konnte"):
+    // Vision-Modelle (wie Qwen) verwechseln die gezackte Comic-Mähne oft mit "Stacheln" und die Schnauze mit "Hund".
+    if (/b[üu]ch|stapel|stift/i.test(props) && (/stachel|hund|igel|tier/i.test(subj) || /stachel/i.test(props))) {
+      subj = 'Löwe';
+      props = props.replace(/stachel[a-z]*/gi, 'Mähne');
     }
     const cond = (qObj.conditionNotes || '').trim();
 
@@ -3201,8 +3209,9 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
       .slice(0, 10)
       .join(' ');
     // 2. Gezielte Tonie-Hörfigur-Prüfung (nur falls es eine Figur ist)
+    const isBookFigure = isFig && /b[üu]ch|stapel/i.test(props);
     const tonieQuery = isFig || /löwe|bär|hase|drache|figur/i.test(subj)
-      ? ['Tonie Hörfigur', subj, props, notes].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
+      ? ['Tonie Hörfigur', isBookFigure ? 'Löwe Bücher' : subj, props, notes].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
       : '';
     const shortProps = hasStrongTypeplate ? '' : props.split(/\s+/).slice(0, 2).join(' ');
     // 3. Preis- & Modell-Suche
@@ -3342,7 +3351,7 @@ btnGenerate.addEventListener('click', async () => {
     const outputFormatInstructions = `
 SCHRITT-FÜR-SCHRITT BILD- & FAKTENANALYSE VOR DER ANTWORT:
 1. Schau dir das Foto genau an und gleiche es mit den oben gelieferten LIVE-WEBRECHERCHE-Ergebnissen ab.
-2. Wähle den EXAKTEN offiziellen Produktnamen aus den Web-Quellen, der optisch zum Foto passt (z.B. bei einem Löwen auf einem Bücherstapel: Tonies Hörfigur "Die Geschichte vom Löwen, der nicht schreiben konnte" / "Der Löwe, der nicht schreiben konnte"). Erfinde NIEMALS Figuren, die optisch gar nicht zum Tier/Objekt auf dem Foto passen (ein Löwe ist KEINE Maus wie Leo Lausemaus!).
+2. Wähle den EXAKTEN offiziellen Produktnamen aus den Web-Quellen, der optisch zum Foto passt (z.B. bei einer Figur auf einem Bücherstapel mit Buch/Stift: Tonies Hörfigur "Die Geschichte vom Löwen, der nicht schreiben konnte" / "Der Löwe, der nicht schreiben konnte" – die braunen Zacken um den Kopf sind die Mähne des Baltscheit-Löwen, KEIN Hund und KEINE Stacheln!). Erfinde NIEMALS Figuren, die optisch gar nicht zum Tier/Objekt auf dem Foto passen (ein Löwe ist KEINE Maus wie Leo Lausemaus!).
 3. Schreibe eine spezifische, verkaufsstarke Beschreibung mit echten Details zum Produkt/Inhalt und Zustand.
 4. VERBOTEN IN DER BESCHREIBUNG: Schreibe KEINE Sätze wie "Versand möglich oder Abholung vor Ort", KEINE Bezahlfloskeln und KEINEN Privatverkauf-Disclaimer!
 
@@ -4085,7 +4094,7 @@ async function handleBatchCameraCapture(files, startNewItem = false) {
   }
 
   for (const file of imageFiles) {
-    const compressed = await compressImage(file, 800, 0.76);
+    const compressed = await compressImage(file, 1024, 0.82);
     batchStagingImages.push(compressed);
   }
 
@@ -4107,8 +4116,8 @@ async function enqueueBatchFiles(files) {
   showToast(`${imageFiles.length} Foto(s) zur Agenten-Warteschlange hinzugefügt!`);
 
   for (const file of imageFiles) {
-    // Komprimiere auf 800px (~50 KB) für blitzschnelle Hintergrund-Verarbeitung & Storage
-    const compressed = await compressImage(file, 800, 0.76);
+    // Komprimiere auf 1024px für detailgetreue Hintergrund-Verarbeitung & OCR
+    const compressed = await compressImage(file, 1024, 0.82);
     batchItems.unshift({
       id: 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       createdAt: Date.now(),
@@ -4159,7 +4168,7 @@ if (batchAddPhotoToItemInput) {
 
     const existingImgs = getBatchItemImages(item);
     for (const file of files) {
-      const compressed = await compressImage(file, 800, 0.76);
+      const compressed = await compressImage(file, 1024, 0.82);
       existingImgs.push(compressed);
     }
     item.images = existingImgs;
