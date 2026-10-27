@@ -137,6 +137,11 @@ const groundingLinks = document.getElementById('groundingLinks');
 const btnCopyTitle = document.getElementById('btnCopyTitle');
 const btnCopyDescription = document.getElementById('btnCopyDescription');
 
+// Benutzerkonto Header-Elemente
+const btnAuthModal = document.getElementById('btnAuthModal');
+const authHeaderAvatar = document.getElementById('authHeaderAvatar');
+const authHeaderLabel = document.getElementById('authHeaderLabel');
+
 // Modals & Admin Panel Configuration
 const settingsModal = document.getElementById('settingsModal');
 const btnAdminPanel = document.getElementById('btnAdminPanel');
@@ -784,14 +789,18 @@ if (btnFetchModels) {
   });
 }
 
-modelSelect.addEventListener('change', () => {
-  if (modelSelect.value === 'custom') {
-    customModelInput.classList.remove('hidden');
-    customModelInput.focus();
-  } else {
-    customModelInput.classList.add('hidden');
-  }
-});
+if (modelSelect) {
+  modelSelect.addEventListener('change', () => {
+    if (modelSelect.value === 'custom') {
+      if (customModelInput) {
+        customModelInput.classList.remove('hidden');
+        customModelInput.focus();
+      }
+    } else {
+      if (customModelInput) customModelInput.classList.add('hidden');
+    }
+  });
+}
 
 function loadSettings() {
   // Falls der Nutzer schon einen Gemini-Key aus vorherigen Schritten hat, aber noch keinen Provider gewählt hat:
@@ -1386,9 +1395,11 @@ if (adminAuthForm) {
   });
 }
 
-btnCloseSettings.addEventListener('click', () => {
-  settingsModal.classList.add('hidden');
-});
+if (btnCloseSettings) {
+  btnCloseSettings.addEventListener('click', () => {
+    if (settingsModal) settingsModal.classList.add('hidden');
+  });
+}
 
 // Auto-Save bei Eingabe im Admin-Panel (damit Keys auch ohne Klick auf "Speichern" sofort aktiv sind)
 if (tavilyApiKeyInput) {
@@ -1415,7 +1426,8 @@ if (apiKeyInput) {
   });
 }
 
-btnSaveSettings.addEventListener('click', () => {
+if (btnSaveSettings) {
+  btnSaveSettings.addEventListener('click', () => {
   const prov = providerSelect ? providerSelect.value : 'neuralwatt';
   const key = apiKeyInput.value.trim();
   const chosenModel = modelSelect.value === 'custom'
@@ -1448,6 +1460,7 @@ btnSaveSettings.addEventListener('click', () => {
     runBatchAgentQueue();
   }
 });
+}
 
 // System-Prompt Editor (im Admin-Tab 3)
 if (adminPromptPlatformSelect) {
@@ -5070,11 +5083,7 @@ const AUTH_USERS_KEY = 'sellmate_auth_users_v1';
 const AUTH_SESSION_KEY = 'sellmate_auth_session_v1';
 const AUTH_CLOUD_KEY = 'sellmate_auth_cloud_cfg_v1';
 
-// DOM Elements: Header & Auth Modal
-const btnAuthModal = document.getElementById('btnAuthModal');
-const authHeaderAvatar = document.getElementById('authHeaderAvatar');
-const authHeaderLabel = document.getElementById('authHeaderLabel');
-
+// DOM Elements: Auth Modal
 const authModal = document.getElementById('authModal');
 const btnCloseAuthModal = document.getElementById('btnCloseAuthModal');
 const authModalTitle = document.getElementById('authModalTitle');
