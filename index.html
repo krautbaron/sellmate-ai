@@ -810,21 +810,35 @@
 
           <!-- Code Erstellen / Aufladen Formular -->
           <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
-            <h4 class="font-bold text-slate-200 text-xs flex items-center gap-1.5">
-              <i data-lucide="plus-circle" class="w-4 h-4 text-emerald-400"></i>
-              <span>Neuen Code erstellen oder aufladen</span>
-            </h4>
+            <div class="flex items-center justify-between">
+              <div>
+                <h4 class="font-bold text-slate-200 text-xs flex items-center gap-1.5">
+                  <i data-lucide="plus-circle" class="w-4 h-4 text-emerald-400"></i>
+                  <span>Neuen individuellen Tester-Code erstellen</span>
+                </h4>
+                <p class="text-[10px] text-slate-500 mt-0.5">Jeder Tester erhält seinen eigenen Code mit eigenem Credit-Guthaben</p>
+              </div>
+              <button
+                type="button"
+                id="btnAdminGenRandomCode"
+                class="px-2.5 py-1.5 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 border border-amber-400/30 text-[11px] font-bold flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+                title="Erzeugt einen individuellen Zufalls-Code (z.B. SM-8492)"
+              >
+                <i data-lucide="wand-2" class="w-3.5 h-3.5"></i>
+                <span>🎲 Zufalls-Code</span>
+              </button>
+            </div>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <input
                 type="text"
                 id="adminNewCodeInput"
-                placeholder="Code (z.B. LISA-2026)"
+                placeholder="Code (z.B. SM-7492 oder ANNA)"
                 class="rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-white uppercase font-mono tracking-wider focus:border-amber-400 focus:outline-none"
               />
               <input
                 type="text"
                 id="adminNewLabelInput"
-                placeholder="Name / Notiz (z.B. Lisa & Markus)"
+                placeholder="Name / Tester (z.B. Anna K.)"
                 class="rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-white focus:border-amber-400 focus:outline-none"
               />
               <input
@@ -837,13 +851,22 @@
                 class="rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-white font-mono focus:border-amber-400 focus:outline-none"
               />
             </div>
+
+            <!-- Quick Credit Presets -->
+            <div class="flex items-center gap-1.5 pt-0.5">
+              <span class="text-[10px] text-slate-500 font-semibold">Credits:</span>
+              <button type="button" class="btn-credit-preset px-2.5 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/5 text-[10px] font-bold transition" data-credits="25">25</button>
+              <button type="button" class="btn-credit-preset px-2.5 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/5 text-[10px] font-bold transition" data-credits="50">50</button>
+              <button type="button" class="btn-credit-preset px-2.5 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/5 text-[10px] font-bold transition" data-credits="100">100</button>
+            </div>
+
             <button
               type="button"
               id="btnAdminCreateCode"
               class="w-full py-2.5 px-4 rounded-xl cta-gradient text-slate-950 font-extrabold text-xs transition active:scale-95 flex items-center justify-center gap-1.5"
             >
               <i data-lucide="save" class="w-4 h-4"></i>
-              <span>In Supabase speichern / aufladen</span>
+              <span>In Supabase anlegen / aufladen</span>
             </button>
           </div>
 
@@ -1407,6 +1430,6 @@
     <span id="toastText">Kopiert!</span>
   </div>
 
-  <script src="app.js?v=33"></script>
+  <script src="app.js?v=34"></script>
 </body>
 </html>

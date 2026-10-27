@@ -198,6 +198,7 @@ const adminNewCodeInput = document.getElementById('adminNewCodeInput');
 const adminNewLabelInput = document.getElementById('adminNewLabelInput');
 const adminNewCreditsInput = document.getElementById('adminNewCreditsInput');
 const btnAdminCreateCode = document.getElementById('btnAdminCreateCode');
+const btnAdminGenRandomCode = document.getElementById('btnAdminGenRandomCode');
 const btnAdminActivateOwnerCode = document.getElementById('btnAdminActivateOwnerCode');
 const btnAdminRefreshCodes = document.getElementById('btnAdminRefreshCodes');
 const adminCodesListContainer = document.getElementById('adminCodesListContainer');
@@ -1203,37 +1204,73 @@ async function refreshAdminCodesList() {
     }
 
     adminCodesListContainer.innerHTML = codes.map((c) => {
-      const remaining = Math.max(0, (c.credits_total || 50) - (c.credits_used || 0));
+      const total = Number(c.credits_total) || 50;
+      const used = Number(c.credits_used) || 0;
+      const remaining = Math.max(0, total - used);
+      const usedPercent = Math.min(100, Math.round((used / total) * 100));
+
+      let badgeColor = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+      if (remaining === 0) {
+        badgeColor = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+      } else if (remaining <= 5) {
+        badgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+      }
+
       return `
-        <div class="flex items-center justify-between p-3 rounded-xl bg-slate-900 border border-white/5 gap-2">
-          <div class="space-y-0.5">
+        <div class="p-3 rounded-2xl bg-slate-900 border border-white/5 space-y-2 hover:border-white/10 transition">
+          <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2">
               <span class="font-mono font-bold text-white text-xs">${escapeHtml(c.code)}</span>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${c.is_active ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-500'}">
-                ${c.is_active ? 'Aktiv' : 'Inaktiv'}
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor}">
+                ${remaining === 0 ? 'Aufgebraucht' : `${remaining} frei`}
               </span>
             </div>
-            <div class="text-[11px] text-slate-400">
-              ${escapeHtml(c.label || 'Standard')} • <span class="text-emerald-400 font-semibold">${remaining} von ${c.credits_total} frei</span> (${c.credits_used || 0} genutzt)
+            <div class="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                class="btn-admin-copy-link p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                data-code="${escapeHtml(c.code)}"
+                title="Einladungslink kopieren"
+              >
+                <i data-lucide="link" class="w-3.5 h-3.5"></i>
+              </button>
+              <button
+                type="button"
+                class="btn-admin-copy-msg p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 transition"
+                data-code="${escapeHtml(c.code)}"
+                data-credits="${total}"
+                title="Einladungstext für WhatsApp / Chat kopieren"
+              >
+                <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
+              </button>
+              <button
+                type="button"
+                class="btn-admin-refill-code p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 transition"
+                data-code="${escapeHtml(c.code)}"
+                data-label="${escapeHtml(c.label || '')}"
+                data-total="${total}"
+                title="Code wieder auf voll aufladen (Credits-Used auf 0)"
+              >
+                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+              </button>
+              <button
+                type="button"
+                class="btn-admin-delete-code p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition"
+                data-code="${escapeHtml(c.code)}"
+                title="Code löschen"
+              >
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+              </button>
             </div>
           </div>
-          <div class="flex items-center gap-1.5 shrink-0">
-            <button
-              type="button"
-              class="btn-admin-copy-link p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
-              data-code="${escapeHtml(c.code)}"
-              title="Einladungslink kopieren"
-            >
-              <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
-            </button>
-            <button
-              type="button"
-              class="btn-admin-delete-code p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition"
-              data-code="${escapeHtml(c.code)}"
-              title="Code löschen"
-            >
-              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-            </button>
+
+          <div class="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+            <span class="truncate max-w-[200px]">${escapeHtml(c.label || 'Tester')}</span>
+            <span class="font-mono text-[10px]">${used} / ${total} Scans verbraucht</span>
+          </div>
+
+          <div class="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-white/5">
+            <div class="h-full ${remaining === 0 ? 'bg-rose-500' : 'bg-emerald-500'} transition-all" style="width: ${usedPercent}%"></div>
           </div>
         </div>
       `;
@@ -1246,7 +1283,43 @@ async function refreshAdminCodesList() {
         const target = btn.dataset.code;
         const link = `${window.location.origin}${window.location.pathname}#invite=${encodeURIComponent(target)}`;
         await navigator.clipboard.writeText(link);
-        showToast(`✓ Link für ${target} kopiert!`);
+        showToast(`✓ Link für "${target}" kopiert!`);
+      });
+    });
+
+    adminCodesListContainer.querySelectorAll('.btn-admin-copy-msg').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const target = btn.dataset.code;
+        const creds = btn.dataset.credits || 50;
+        const link = `${window.location.origin}${window.location.pathname}#invite=${encodeURIComponent(target)}`;
+        const msg = `Hallo! Hier ist dein persönlicher SellMate AI Zugang (${creds} Gratis-Scans):\n${link}\n\nEinfach im Browser oder am Smartphone öffnen und direkt loslegen!`;
+        await navigator.clipboard.writeText(msg);
+        showToast(`✓ Einladungstext für WhatsApp / Chat kopiert!`);
+      });
+    });
+
+    adminCodesListContainer.querySelectorAll('.btn-admin-refill-code').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const target = btn.dataset.code;
+        const label = btn.dataset.label || 'Tester';
+        const total = Number(btn.dataset.total) || 50;
+        if (!confirm(`Möchtest du den Code "${target}" wieder voll auf ${total} Scans aufladen?`)) return;
+        btn.disabled = true;
+        try {
+          const rRes = await callProxyApi({
+            action: 'admin_upsert_code',
+            payload: { code: target, label, creditsTotal: total, creditsUsed: 0, isActive: true }
+          });
+          const rData = await rRes.json().catch(() => ({}));
+          if (rRes.ok && rData.ok) {
+            showToast(`✓ Code "${target}" wieder auf ${total} Scans aufgeladen!`);
+            refreshAdminCodesList();
+          } else {
+            showToast(`Fehler: ${rData.error || 'Konnte nicht aufgeladen werden'}`);
+          }
+        } catch (err) {
+          showToast(`Fehler: ${err.message}`);
+        }
       });
     });
 
@@ -1278,6 +1351,30 @@ async function refreshAdminCodesList() {
 if (btnAdminRefreshCodes) {
   btnAdminRefreshCodes.addEventListener('click', refreshAdminCodesList);
 }
+
+if (btnAdminGenRandomCode) {
+  btnAdminGenRandomCode.addEventListener('click', () => {
+    const randNum = Math.floor(1000 + Math.random() * 9000);
+    const prefixes = ['SM', 'BETA', 'TEST', 'VIP'];
+    const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+    if (adminNewCodeInput) {
+      adminNewCodeInput.value = `${prefix}-${randNum}`;
+      adminNewCodeInput.focus();
+    }
+    if (adminNewLabelInput && !adminNewLabelInput.value) {
+      adminNewLabelInput.value = `Tester ${randNum}`;
+    }
+  });
+}
+
+document.querySelectorAll('.btn-credit-preset').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const creds = btn.dataset.credits;
+    if (adminNewCreditsInput && creds) {
+      adminNewCreditsInput.value = creds;
+    }
+  });
+});
 
 if (btnAdminCreateCode) {
   btnAdminCreateCode.addEventListener('click', async () => {
