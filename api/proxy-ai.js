@@ -1,7 +1,7 @@
 // api/proxy-ai.js – Vercel Serverless Function (Node.js runtime)
 // Unterstützt: Invite-Code Prüfung, KI-Proxy, Tavily-Proxy & Automatische GitHub Fehler-Tickets
 
-const GITHUB_REPO = 'krautbaron/sellmate-ai';
+const GITHUB_REPO = process.env.GITHUB_REPO || 'krautbaron/sellmate-ai';
 
 function buildSupabaseHeaders(supabaseKey, extra = {}) {
   const cleanKey = String(supabaseKey || '').trim();
@@ -19,29 +19,67 @@ function buildSupabaseHeaders(supabaseKey, extra = {}) {
 }
 
 // Erstellt automatisch ein GitHub Issue (oder kommentiert ein bestehendes offenes Issue gleichen Titels)
-async function createAutoGitHubTicket({ title, category = 'Server-Error', message = '', details = {}, clientPat = '' }) {
+async function createAutoGitHubTicket({
+  title,
+  category = 'Server-Error',
+  message = '',
+  details = {},
+  clientPat = '',
+  isUserReport = false,
+  userNotes = '',
+  contact = ''
+}) {
   const pat = (process.env.GITHUB_PAT || process.env.SERVER_GITHUB_PAT || clientPat || '').trim();
-  if (!pat) {
-    return { created: false, reason: 'Kein GITHUB_PAT in Vercel oder Client hinterlegt' };
+  const repoName = (process.env.GITHUB_REPO || GITHUB_REPO).trim();
+
+  const isExplicitUser = Boolean(isUserReport || details.isUserReport);
+  const notes = String(userNotes || details.userNotes || '').trim();
+  const userContact = String(contact || details.contact || '').trim();
+  const cleanTitle = String(title || message || 'Fehler').slice(0, 75);
+  const issueTitle = isExplicitUser
+    ? `🚨 [User Report] ${category}: ${cleanTitle}`
+    : `🤖 [Auto-Ticket] ${category}: ${cleanTitle}`;
+
+  const bodySections = [];
+  if (isExplicitUser) {
+    bodySections.push('### 🚨 Nutzer-Fehlermeldung (SellMate AI)');
+    bodySections.push(`> 💬 **Nutzer-Beschreibung:**\n> ${notes ? notes.replace(/\n/g, '\n> ') : '_Keine zusätzliche Beschreibung angegeben._'}`);
+    bodySections.push('');
+    if (userContact) bodySections.push(`- **Kontakt:** \`${userContact}\``);
+  } else {
+    bodySections.push('### 🤖 Automatisch erfasstes Fehler-Ticket');
   }
 
-  const issueTitle = `🚨 [Auto-Ticket] ${category}: ${String(title || message).slice(0, 75)}`;
-  const bodyText = [
-    `### 🚨 Automatisch erfasstes Fehler-Ticket`,
-    `- **Zeitpunkt:** \`${new Date().toISOString()}\``,
-    `- **Kategorie:** \`${category}\``,
-    `- **Fehlermeldung:** \`${message}\``,
-    details.inviteCode ? `- **Verwendeter Invite-Code:** \`${details.inviteCode}\`` : '',
-    details.device ? `- **Gerät / Browser:** ${details.device}` : '',
-    details.url ? `- **URL:** \`${details.url}\`` : '',
-    '',
-    '#### Technische Diagnose-Daten',
-    '```json',
-    JSON.stringify(details, null, 2).slice(0, 3500),
-    '```'
-  ]
-    .filter(Boolean)
-    .join('\n');
+  bodySections.push(`- **Zeitpunkt:** \`${new Date().toISOString()}\``);
+  bodySections.push(`- **Kategorie:** \`${category}\``);
+  bodySections.push(`- **Fehlermeldung:** \`${message}\``);
+  if (details.inviteCode) bodySections.push(`- **Invite-Code:** \`${details.inviteCode}\``);
+  if (details.device) bodySections.push(`- **Gerät / Browser:** ${details.device}`);
+  if (details.url) bodySections.push(`- **URL:** \`${details.url}\``);
+  if (details.activeModel) bodySections.push(`- **Aktives Modell:** \`${details.activeModel}\``);
+
+  bodySections.push('');
+  bodySections.push('<details>');
+  bodySections.push('<summary>🔍 Technische Diagnose-Daten & Logs aufklappen</summary>');
+  bodySections.push('');
+  bodySections.push('```json');
+  bodySections.push(JSON.stringify(details, null, 2).slice(0, 3800));
+  bodySections.push('```');
+  bodySections.push('</details>');
+
+  const bodyText = bodySections.join('\n');
+
+  // Fallback-Link für Nutzer, falls auf Vercel kein PAT konfiguriert ist
+  const fallbackUrl = `https://github.com/${repoName}/issues/new?title=${encodeURIComponent(issueTitle)}&body=${encodeURIComponent(bodyText.slice(0, 1600))}&labels=bug,user-report`;
+
+  if (!pat) {
+    return {
+      created: false,
+      reason: 'Kein GITHUB_PAT in Vercel oder Client hinterlegt',
+      fallbackUrl,
+      issueTitle
+    };
+  }
 
   const ghHeaders = {
     Authorization: `Bearer ${pat}`,
@@ -52,7 +90,7 @@ async function createAutoGitHubTicket({ title, category = 'Server-Error', messag
 
   try {
     // 1. Prüfe, ob bereits ein offenes Ticket mit diesem Titel existiert (Deduplizierung)
-    const listRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/issues?state=open&per_page=30`, {
+    const listRes = await fetch(`https://api.github.com/repos/${repoName}/issues?state=open&per_page=30`, {
       headers: ghHeaders
     });
     if (listRes.ok) {
@@ -60,7 +98,7 @@ async function createAutoGitHubTicket({ title, category = 'Server-Error', messag
       const existing = (issues || []).find((i) => i.title === issueTitle);
       if (existing?.number) {
         const commentRes = await fetch(
-          `https://api.github.com/repos/${GITHUB_REPO}/issues/${existing.number}/comments`,
+          `https://api.github.com/repos/${repoName}/issues/${existing.number}/comments`,
           {
             method: 'POST',
             headers: ghHeaders,
@@ -68,27 +106,49 @@ async function createAutoGitHubTicket({ title, category = 'Server-Error', messag
           }
         );
         const commentData = await commentRes.json().catch(() => ({}));
-        return { created: true, deduplicated: true, issueNumber: existing.number, url: commentData.html_url || existing.html_url };
+        return {
+          created: true,
+          deduplicated: true,
+          issueNumber: existing.number,
+          url: commentData.html_url || existing.html_url,
+          fallbackUrl
+        };
       }
     }
 
     // 2. Neues Issue anlegen
-    const createRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/issues`, {
+    const labels = isExplicitUser ? ['bug', 'user-report'] : ['bug', 'auto-telemetry'];
+    const createRes = await fetch(`https://api.github.com/repos/${repoName}/issues`, {
       method: 'POST',
       headers: ghHeaders,
       body: JSON.stringify({
         title: issueTitle,
         body: bodyText,
-        labels: ['bug']
+        labels
       })
     });
     const created = await createRes.json().catch(() => ({}));
     if (!createRes.ok) {
-      return { created: false, reason: created?.message || `GitHub HTTP ${createRes.status}` };
+      return {
+        created: false,
+        reason: created?.message || `GitHub HTTP ${createRes.status}`,
+        fallbackUrl,
+        issueTitle
+      };
     }
-    return { created: true, issueNumber: created.number, url: created.html_url };
+    return {
+      created: true,
+      issueNumber: created.number,
+      url: created.html_url,
+      fallbackUrl
+    };
   } catch (err) {
-    return { created: false, reason: err.message };
+    return {
+      created: false,
+      reason: err.message,
+      fallbackUrl,
+      issueTitle
+    };
   }
 }
 
@@ -128,7 +188,10 @@ export default async function handler(req, res) {
       category: payload.category || 'Client-Error',
       message: payload.message || 'Unbekannter Fehler',
       details: payload,
-      clientPat: clientGithubPat
+      clientPat: clientGithubPat,
+      isUserReport: Boolean(payload.isUserReport),
+      userNotes: payload.userNotes || '',
+      contact: payload.contact || ''
     });
     return res.status(200).json({ ok: true, ticket });
   }

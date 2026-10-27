@@ -123,6 +123,37 @@ const btnGenerate = document.getElementById('btnGenerate');
 const loadingSection = document.getElementById('loadingSection');
 const errorSection = document.getElementById('errorSection');
 const errorText = document.getElementById('errorText');
+const errorBadgeType = document.getElementById('errorBadgeType');
+const btnReportError = document.getElementById('btnReportError');
+const btnRetryAnalysis = document.getElementById('btnRetryAnalysis');
+const btnCopyError = document.getElementById('btnCopyError');
+
+// Modal: Fehler melden & GitHub Issue Assistent
+const reportErrorModal = document.getElementById('reportErrorModal');
+const btnCloseReportErrorModal = document.getElementById('btnCloseReportErrorModal');
+const btnCancelReportError = document.getElementById('btnCancelReportError');
+const reportErrorFormView = document.getElementById('reportErrorFormView');
+const reportErrorSendingView = document.getElementById('reportErrorSendingView');
+const reportErrorSuccessView = document.getElementById('reportErrorSuccessView');
+const reportModalCategoryBadge = document.getElementById('reportModalCategoryBadge');
+const reportModalErrorMessage = document.getElementById('reportModalErrorMessage');
+const reportUserNotes = document.getElementById('reportUserNotes');
+const reportUserContact = document.getElementById('reportUserContact');
+const reportModalMetaPreview = document.getElementById('reportModalMetaPreview');
+const btnSubmitReportError = document.getElementById('btnSubmitReportError');
+const reportSuccessDesc = document.getElementById('reportSuccessDesc');
+const reportGithubIssueBox = document.getElementById('reportGithubIssueBox');
+const reportGithubIssueTitle = document.getElementById('reportGithubIssueTitle');
+const reportGithubIssueLink = document.getElementById('reportGithubIssueLink');
+const reportSmartTipBox = document.getElementById('reportSmartTipBox');
+const reportSmartTipText = document.getElementById('reportSmartTipText');
+const reportSmartTipActions = document.getElementById('reportSmartTipActions');
+const reportSupportCodeLabel = document.getElementById('reportSupportCodeLabel');
+const btnCopySupportCode = document.getElementById('btnCopySupportCode');
+const btnCloseReportSuccessModal = document.getElementById('btnCloseReportSuccessModal');
+const btnRetryAfterReport = document.getElementById('btnRetryAfterReport');
+const btnOpenReportFromInviteModal = document.getElementById('btnOpenReportFromInviteModal');
+
 const resultSection = document.getElementById('resultSection');
 
 const priceAnalysisContent = document.getElementById('priceAnalysisContent');
@@ -472,6 +503,8 @@ async function callProxyApi(bodyObj, signal = undefined) {
 }
 
 // Meldet jeden Fehler automatisch als Ticket (über Server-Proxy an GitHub Issues & Vercel)
+let activeReportContext = null;
+
 async function reportErrorTicket({ category = 'App-Error', title = '', message = '', extra = {} }) {
   const details = {
     category,
@@ -481,8 +514,12 @@ async function reportErrorTicket({ category = 'App-Error', title = '', message =
     device: typeof getDeviceShortName === 'function' ? getDeviceShortName() : navigator.userAgent,
     url: window.location.href,
     timestamp: new Date().toISOString(),
+    logs: (typeof diagLogEntries !== 'undefined' ? [...diagLogEntries] : []),
     ...extra
   };
+
+  // Aktiven Kontext für eventuelle manuelle Nutzer-Meldung speichern
+  activeReportContext = details;
 
   console.error('[SellMate Auto-Ticket]', details);
 
@@ -509,6 +546,306 @@ async function reportErrorTicket({ category = 'App-Error', title = '', message =
   } catch (_) {
     return null;
   }
+}
+
+// ============================================================================
+// FEHLER-MELDUNG & INTELLIGENTER GITHUB-ISSUE ASSISTENT (USER REPORT)
+// ============================================================================
+
+function getInstantTroubleshootingTip(context) {
+  const msg = String(context?.message || context?.title || '').toLowerCase();
+  const tips = [];
+  const actions = [];
+
+  // 1. Rate Limit / 429 / Überlastung
+  if (msg.includes('429') || msg.includes('rate') || msg.includes('limit') || msg.includes('overload') || msg.includes('busy') || msg.includes('ausgelastet') || msg.includes('exhausted')) {
+    tips.push('Das aktuelle KI-Modell ist im Moment überlastet oder das Anfragelimit wurde erreicht. Wechsle mit einem Klick auf das schnelle Alternativmodell Qwen 3.8 27B Vision oder warte ca. 30 Sekunden.');
+    actions.push({
+      label: 'Auf Qwen 3.8 27B wechseln',
+      primary: true,
+      onClick: () => {
+        if (typeof adminNeuralwattModelSelect !== 'undefined' && adminNeuralwattModelSelect) {
+          adminNeuralwattModelSelect.value = 'qwen-3.8-27b';
+          localStorage.setItem('sellmate_neuralwatt_model', 'qwen-3.8-27b');
+        }
+        showToast('Modell auf Qwen 3.8 27B Vision gewechselt!');
+        closeReportErrorModal();
+        if (btnRetryAnalysis) btnRetryAnalysis.click();
+      }
+    });
+    actions.push({
+      label: 'In 20s erneut versuchen',
+      onClick: () => {
+        closeReportErrorModal();
+        showToast('Warte 20 Sekunden vor erneutem Versuch...');
+        setTimeout(() => {
+          if (btnRetryAnalysis) btnRetryAnalysis.click();
+        }, 20000);
+      }
+    });
+  }
+  // 2. Bild / Payload Too Large / Decode Fehler
+  else if (msg.includes('413') || msg.includes('payload') || msg.includes('too large') || msg.includes('bild') || msg.includes('image') || msg.includes('decode') || msg.includes('groß')) {
+    tips.push('Die Bilddateien waren möglicherweise zu hoch aufgelöst oder konnten vom Provider nicht verarbeitet werden. Tipp: Reduziere die Fotoanzahl oder komprimiere die Bilder vor dem Upload.');
+    actions.push({
+      label: 'Bilder zurücksetzen & neu aufnehmen',
+      primary: true,
+      onClick: () => {
+        if (typeof uploadedImages !== 'undefined') {
+          uploadedImages.length = 0;
+          if (typeof renderImageThumbnails === 'function') renderImageThumbnails();
+        }
+        closeReportErrorModal();
+        showToast('Fotos zurückgesetzt. Bitte neu aufnehmen.');
+      }
+    });
+  }
+  // 3. Invite-Code / Guthaben / 401 / 403
+  else if (msg.includes('code') || msg.includes('invite') || msg.includes('guthaben') || msg.includes('credit') || msg.includes('401') || msg.includes('403') || msg.includes('unauthorized') || msg.includes('abgelaufen')) {
+    tips.push('Dein Scan-Kontingent ist erschöpft oder der Einladungscode ist nicht mehr aktiv. Gib einen neuen Code ein, um direkt weiterzuscannen.');
+    actions.push({
+      label: 'Guthaben & Code verwalten',
+      primary: true,
+      onClick: () => {
+        closeReportErrorModal();
+        if (typeof openInviteUserModal === 'function') openInviteUserModal();
+        else if (inviteUserModal) inviteUserModal.classList.remove('hidden');
+      }
+    });
+  }
+  // 4. Timeout / Netzwerk / Fetch Failed / Proxy
+  else if (msg.includes('fetch') || msg.includes('network') || msg.includes('offline') || msg.includes('timeout') || msg.includes('504') || msg.includes('502') || msg.includes('aborted') || msg.includes('zeitüberschreitung')) {
+    tips.push('Verbindungsunterbrechung zum Server-Proxy oder Timeout bei der KI-Generierung. Prüfe deine Internetverbindung und starte den Versuch erneut.');
+    actions.push({
+      label: 'Jetzt erneut versuchen',
+      primary: true,
+      onClick: () => {
+        closeReportErrorModal();
+        if (btnRetryAnalysis) btnRetryAnalysis.click();
+      }
+    });
+  }
+  // 5. Generischer Fehler
+  else {
+    tips.push('Unser Team hat alle Diagnosedaten erfasst. Temporäre Störungen lassen sich meist durch einen direkten Neuversuch beheben.');
+    actions.push({
+      label: 'Jetzt erneut versuchen',
+      primary: true,
+      onClick: () => {
+        closeReportErrorModal();
+        if (btnRetryAnalysis) btnRetryAnalysis.click();
+      }
+    });
+  }
+
+  return { tip: tips[0], actions };
+}
+
+function openReportErrorModal(customContext = null) {
+  if (customContext) {
+    activeReportContext = customContext;
+  } else if (!activeReportContext) {
+    activeReportContext = {
+      category: 'Analyse',
+      title: errorText?.textContent || 'Unbekannter Fehler',
+      message: errorText?.textContent || 'Fehler beim Ausführen der App',
+      timestamp: new Date().toISOString(),
+      logs: (typeof diagLogEntries !== 'undefined' ? [...diagLogEntries] : []),
+      extra: {
+        platform: typeof currentPlatform !== 'undefined' ? currentPlatform : 'kleinanzeigen',
+        device: typeof getDeviceShortName === 'function' ? getDeviceShortName() : navigator.userAgent
+      }
+    };
+  }
+
+  if (reportModalCategoryBadge) {
+    reportModalCategoryBadge.textContent = activeReportContext.category || 'System';
+  }
+  if (reportModalErrorMessage) {
+    reportModalErrorMessage.textContent = activeReportContext.message || activeReportContext.title || 'Unbekannter Fehler';
+  }
+
+  // Preview Metadaten rendern
+  if (reportModalMetaPreview) {
+    const prov = typeof getActiveProvider === 'function' ? getActiveProvider() : '-';
+    const mod = typeof getProviderModel === 'function' ? getProviderModel(prov) : '-';
+    const dev = typeof getDeviceShortName === 'function' ? getDeviceShortName() : navigator.userAgent;
+    const inv = typeof getInviteCode === 'function' ? (getInviteCode() ? 'Aktiv (' + getInviteCode() + ')' : 'Keiner') : '-';
+    const time = new Date().toLocaleTimeString();
+    const logCount = Array.isArray(activeReportContext.logs) ? activeReportContext.logs.length : 0;
+
+    reportModalMetaPreview.innerHTML = `
+      <div class="grid grid-cols-2 gap-1.5 bg-black/40 p-2.5 rounded-xl border border-white/5 text-[11px]">
+        <div><span class="text-slate-500">Gerät / Browser:</span> <span class="text-slate-200 font-medium">${escapeHtml(dev)}</span></div>
+        <div><span class="text-slate-500">Zeitpunkt:</span> <span class="text-slate-200 font-medium">${time}</span></div>
+        <div><span class="text-slate-500">KI-Modell:</span> <span class="text-slate-200 font-medium">${escapeHtml(mod || prov)}</span></div>
+        <div><span class="text-slate-500">Einladungscode:</span> <span class="text-slate-200 font-medium">${escapeHtml(inv)}</span></div>
+      </div>
+      <div class="text-[10px] text-slate-400 pt-1">
+        Diagnose: ${logCount} Protokollzeilen werden mitgesendet.
+      </div>
+    `;
+  }
+
+  // Views zurücksetzen
+  if (reportErrorFormView) reportErrorFormView.classList.remove('hidden');
+  if (reportErrorSendingView) reportErrorSendingView.classList.add('hidden');
+  if (reportErrorSuccessView) reportErrorSuccessView.classList.add('hidden');
+
+  if (reportErrorModal) reportErrorModal.classList.remove('hidden');
+  if (window.lucide) lucide.createIcons();
+}
+
+function closeReportErrorModal() {
+  if (reportErrorModal) reportErrorModal.classList.add('hidden');
+}
+
+async function submitErrorReport() {
+  if (!activeReportContext) return;
+
+  const notes = reportUserNotes ? reportUserNotes.value.trim() : '';
+  const contact = reportUserContact ? reportUserContact.value.trim() : '';
+
+  // Switch to Sending View
+  if (reportErrorFormView) reportErrorFormView.classList.add('hidden');
+  if (reportErrorSendingView) reportErrorSendingView.classList.remove('hidden');
+
+  // Support-Code generieren
+  const randomHex = Math.random().toString(16).slice(2, 8).toUpperCase();
+  const supportCode = `SM-ERR-${randomHex}`;
+  if (reportSupportCodeLabel) reportSupportCodeLabel.textContent = supportCode;
+
+  const payload = {
+    ...activeReportContext,
+    isUserReport: true,
+    userNotes: notes,
+    contact: contact,
+    supportCode: supportCode,
+    activeModel: typeof getActiveProvider === 'function' ? getProviderModel(getActiveProvider()) : undefined,
+    url: window.location.href,
+    device: typeof getDeviceShortName === 'function' ? getDeviceShortName() : navigator.userAgent
+  };
+
+  let ticketResult = null;
+  try {
+    const res = await callProxyApi({
+      action: 'report_error',
+      payload: payload
+    });
+    const data = await res.json().catch(() => ({}));
+    ticketResult = data?.ticket || null;
+  } catch (err) {
+    console.warn('[Report] Proxy call failed:', err);
+  }
+
+  // Render Success View
+  if (reportErrorSendingView) reportErrorSendingView.classList.add('hidden');
+  if (reportErrorSuccessView) reportErrorSuccessView.classList.remove('hidden');
+
+  const repoName = 'krautbaron/sellmate-ai';
+  const issueNum = ticketResult?.issueNumber;
+  const issueUrl = ticketResult?.url || ticketResult?.fallbackUrl || `https://github.com/${repoName}/issues/new?title=${encodeURIComponent(`[User Report] ${payload.category || 'Fehler'}: ${payload.title || 'App-Problem'}`)}&labels=bug,user-report`;
+
+  if (reportGithubIssueTitle) {
+    if (issueNum) {
+      reportGithubIssueTitle.textContent = `Ticket #${issueNum} auf GitHub angelegt`;
+    } else {
+      reportGithubIssueTitle.textContent = `GitHub Issue-Vorlage vorbereitet`;
+    }
+  }
+
+  if (reportGithubIssueLink) {
+    reportGithubIssueLink.href = issueUrl;
+  }
+
+  // Smart Troubleshooting Tip berechnen und anzeigen
+  const smart = getInstantTroubleshootingTip(activeReportContext);
+  if (reportSmartTipBox && reportSmartTipText && reportSmartTipActions) {
+    reportSmartTipText.textContent = smart.tip;
+    reportSmartTipActions.innerHTML = '';
+    smart.actions.forEach((act) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = act.primary
+        ? 'px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition active:scale-95 shadow-sm'
+        : 'px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 border border-white/5';
+      b.innerHTML = `<span>${escapeHtml(act.label)}</span>`;
+      b.addEventListener('click', act.onClick);
+      reportSmartTipActions.appendChild(b);
+    });
+    reportSmartTipBox.classList.remove('hidden');
+  }
+
+  if (window.lucide) lucide.createIcons();
+}
+
+// Event-Listener für Fehler-Meldung & Actions
+if (btnReportError) {
+  btnReportError.addEventListener('click', () => openReportErrorModal());
+}
+
+if (btnRetryAnalysis) {
+  btnRetryAnalysis.addEventListener('click', () => {
+    if (errorSection) errorSection.classList.add('hidden');
+    if (btnGenerate && !btnGenerate.disabled) {
+      btnGenerate.click();
+    }
+  });
+}
+
+if (btnCopyError) {
+  btnCopyError.addEventListener('click', () => {
+    const txt = errorText?.textContent || 'Keine Fehlermeldung vorhanden';
+    copyToClipboard(`[SellMate Fehler - ${new Date().toISOString()}]\n${txt}`, 'Fehlermeldung kopiert!');
+  });
+}
+
+if (btnCloseReportErrorModal) {
+  btnCloseReportErrorModal.addEventListener('click', closeReportErrorModal);
+}
+
+if (btnCancelReportError) {
+  btnCancelReportError.addEventListener('click', closeReportErrorModal);
+}
+
+if (btnSubmitReportError) {
+  btnSubmitReportError.addEventListener('click', submitErrorReport);
+}
+
+if (btnCopySupportCode) {
+  btnCopySupportCode.addEventListener('click', () => {
+    const code = reportSupportCodeLabel?.textContent || '';
+    if (code) {
+      copyToClipboard(code, 'Support-Code in Zwischenablage kopiert!');
+    }
+  });
+}
+
+if (btnCloseReportSuccessModal) {
+  btnCloseReportSuccessModal.addEventListener('click', closeReportErrorModal);
+}
+
+if (btnRetryAfterReport) {
+  btnRetryAfterReport.addEventListener('click', () => {
+    closeReportErrorModal();
+    if (btnRetryAnalysis) {
+      btnRetryAnalysis.click();
+    }
+  });
+}
+
+if (btnOpenReportFromInviteModal) {
+  btnOpenReportFromInviteModal.addEventListener('click', () => {
+    if (inviteUserModal) inviteUserModal.classList.add('hidden');
+    openReportErrorModal({
+      category: 'Nutzer-Feedback',
+      title: 'Feedback / Frage zum Zugang',
+      message: 'Meldung über das Einladungscode-Menü',
+      timestamp: new Date().toISOString(),
+      logs: (typeof diagLogEntries !== 'undefined' ? [...diagLogEntries] : []),
+      extra: { inviteCode: getInviteCode() || null }
+    });
+  });
 }
 
 async function verifyInviteCodeWithServer(code, showToastMsg = false) {
@@ -3067,7 +3404,13 @@ Antworte ausschließlich als valides JSON-Objekt (ohne umschließenden Markdown-
     addDiagLog(`Abbruch mit Fehler: ${err.message}`, 'error');
     finishDiagSession('Fehler');
     errorText.textContent = err.message || 'Unbekannter Fehler bei der Anfrage.';
+    if (errorBadgeType) {
+      const isRate = (err.message || '').includes('429') || (err.message || '').toLowerCase().includes('rate');
+      const isNet = (err.message || '').toLowerCase().includes('fetch') || (err.message || '').toLowerCase().includes('network');
+      errorBadgeType.textContent = isRate ? 'RATE LIMIT' : isNet ? 'NETZWERK' : 'FEHLER';
+    }
     errorSection.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
     sendGitHubTelemetryReport({
       mode: 'Einzel-Artikel',
       status: 'ERROR',
@@ -4655,6 +4998,10 @@ function renderBatchDashboard() {
               <div class="text-xs font-bold text-rose-300">Analyse fehlgeschlagen</div>
               <div class="text-[11px] text-rose-400 truncate mt-0.5">${escapeHtml(item.errorMsg || '')}</div>
             </div>
+            <button type="button" data-action="report-batch-error" data-id="${item.id}" class="px-2.5 py-1.5 rounded-lg bg-rose-900/40 hover:bg-rose-900/70 text-xs font-semibold text-rose-300 border border-rose-500/20 flex items-center gap-1 transition" title="Diesen Fehler melden">
+              <i data-lucide="flag" class="w-3 h-3"></i>
+              <span>Melden</span>
+            </button>
             <button type="button" data-action="retry" data-id="${item.id}" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white">
               Neu versuchen
             </button>
@@ -4867,6 +5214,18 @@ if (batchItemsList) {
     const id = btn.dataset.id;
     const item = batchItems.find((i) => i.id === id);
     if (!item) return;
+
+    if (action === 'report-batch-error') {
+      openReportErrorModal({
+        category: 'Batch-Agent',
+        title: item.errorMsg ? item.errorMsg.slice(0, 75) : 'Batch-Fehler',
+        message: item.errorMsg || 'Fehler bei der automatischen Analyse des Batch-Artikels',
+        timestamp: new Date().toISOString(),
+        logs: [],
+        extra: { itemId: item.id, userNotes: item.userNotes }
+      });
+      return;
+    }
 
     if (action === 'delete') {
       const name = item.data?.itemName || 'Diesen Artikel';
