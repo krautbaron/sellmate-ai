@@ -3126,8 +3126,8 @@ STRENGE REGELN:
 - IGNORIERE MÜLL-TEXT AUF TYPENSCHILDERN: Schreibe NIEMALS "Made in China", "Rating 5.0V 300mA", "TA 2017-822", Seriennummern (S/N), Schalterzahlen ("1 2 3") oder Prüfsiegel (CE, EAC, FCC, Approved) in die Suchbegriffe!
 - KEIN HINTERGRUND / KEIN TISCH: Beschreibe NIEMALS den Untergrund oder Hintergrund (NICHT "liegt auf Holztisch", NICHT "auf Holzoberfläche", NICHT "in der Hand")!
 - RATE NIEMALS EINE MARKE WIE "McDonald's", "Happy Meal", "Disney", "Ü-Ei" ODER EINEN CHARAKTERNAMEN (wie "Leo Lausemaus", "Simba"), wenn dieser Name NICHT buchstäblich als lesbarer Text auf dem Artikel abgedruckt ist!
-- WICHTIG BEI FIGUREN: Kleine handbemalte Kunststoff-Figuren, die auf einem Sockel, Podest oder einem Stapel Bücher/Blöcken stehen, sind fast immer "Tonie Hörfiguren" (Tonies). Wenn eine Figur auf flachen rechteckigen Stapeln steht, sind das "Bücher" (Bücherstapel) und ein flacher Gegenstand in der Pfote ist ein "Buch / Brief" mit "Stift / Feder".
-- ACHTUNG BEI FIGUREN AUF BÜCHERN: Eine orangefarbene Figur mit braunen Zacken/Mähne um den Kopf, die auf einem Bücherstapel steht und Stift/Buch hält, ist IMMER ein LÖWE (Tonie Hörfigur "Die Geschichte vom Löwen, der nicht schreiben konnte" nach Martin Baltscheit) – verwechsle die braune Comic-Mähne NIEMALS mit Stacheln oder einem Hund! Setze mainSubject zwingend auf "Löwe"!
+- WICHTIG BEI FIGUREN: Kleine handbemalte Kunststoff-Figuren, die auf einem Sockel, Podest oder einem Stapel Bücher/Blöcken stehen, sind fast immer "Tonie Hörfiguren" (Tonies). Beschreibe stets objektiv die sichtbaren Farben, den Sockel/Untergrund (z. B. "Bücherstapel", "Podest") und gehaltene Gegenstände (z. B. "Buch", "Stift", "Tasche").
+- ACHTUNG BEI STILISIERTEN FIGUREN: Ein zackiger Haarkranz oder Kragen um den Kopf eines Tieres ist meist eine Mähne oder ein Fellkragen (z. B. Löwe, Bär), keine Stacheln eines Hundes.
 
 Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
 {
@@ -3180,20 +3180,14 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
       props = `${props} Bücher`;
     }
 
-    // Automatische Korrektur für den Baltscheit-Löwen ("Die Geschichte vom Löwen, der nicht schreiben konnte"):
-    // Vision-Modelle (wie Qwen) verwechseln die gezackte Comic-Mähne oft mit "Stacheln" und die Schnauze mit "Hund".
-    if (/b[üu]ch|stapel|stift/i.test(props) && (/stachel|hund|igel|tier/i.test(subj) || /stachel/i.test(props))) {
-      subj = 'Löwe';
-      props = props.replace(/stachel[a-z]*/gi, 'Mähne');
-    }
     const cond = (qObj.conditionNotes || '').trim();
 
     // Wenn wir bereits einen klaren Modellnamen / Teilenummer vom Typenschild haben (>= 2 Wörter),
     // lassen wir generische Optik-Beschreibungen weg, damit Tavily in ~1s statt 6s exakte Treffer liefert!
     const hasStrongTypeplate = readTxt.split(/\s+/).filter(Boolean).length >= 2;
 
-    // Baue 3 parallele, halluzinationsfreie Suchanfragen (kompakt & schnell):
-    // 1. Reine Optik- & Typenschild-Suche (OHNE 'Figur' bei normalen Geräten!)
+    // Baue 3 parallele, fehlertolerante Suchanfragen:
+    // 1. Reine Optik & Typenschild (Kombination aus Text, Motiv & Merkmalen)
     const pureVisualQuery = [
       isFig ? 'Figur' : '',
       readTxt,
@@ -3208,11 +3202,15 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
       .split(/\s+/)
       .slice(0, 10)
       .join(' ');
-    // 2. Gezielte Tonie-Hörfigur-Prüfung (nur falls es eine Figur ist)
-    const isBookFigure = isFig && /b[üu]ch|stapel/i.test(props);
-    const tonieQuery = isFig || /löwe|bär|hase|drache|figur/i.test(subj)
-      ? ['Tonie Hörfigur', isBookFigure ? 'Löwe Bücher' : subj, props, notes].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
+
+    // 2. Gezielte Sammler-/Hörfiguren-Prüfung nach Zubehör & Sockel (ENTKOPPELT vom geratenen Subjekt!):
+    // Wenn das Modell die Tierart/Figur falsch errät (z.B. Hund statt Löwe, Monster statt Drache),
+    // findet die Suche nach den markanten Zubehörteilen und Sockeln trotzdem das exakte Produkt!
+    const featureOnlyQuery = isFig && props
+      ? ['Tonie Hörfigur', props, notes].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
       : '';
+    const tonieQuery = featureOnlyQuery || (isFig ? ['Tonie Hörfigur', subj, props, notes].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim() : '');
+
     const shortProps = hasStrongTypeplate ? '' : props.split(/\s+/).slice(0, 2).join(' ');
     // 3. Preis- & Modell-Suche
     const priceQuery = [isFig ? 'Tonie' : readTxt, subj, shortProps, 'gebraucht Preis Kleinanzeigen']
@@ -3221,7 +3219,7 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
       .replace(/\s+/g, ' ')
       .trim();
 
-    if (!pureVisualQuery) return null;
+    if (!pureVisualQuery && !tonieQuery) return null;
 
     addDiagLog(`Optik (${images.length} Foto(s)): Text/Typenschild="${readTxt || '-'}", Motiv="${subj}", Details="${props}", Figur=${isFig}`, 'info');
     addDiagLog(`Tavily Suche 1 (Optik): "${pureVisualQuery}"`, 'info');
@@ -3351,7 +3349,7 @@ btnGenerate.addEventListener('click', async () => {
     const outputFormatInstructions = `
 SCHRITT-FÜR-SCHRITT BILD- & FAKTENANALYSE VOR DER ANTWORT:
 1. Schau dir das Foto genau an und gleiche es mit den oben gelieferten LIVE-WEBRECHERCHE-Ergebnissen ab.
-2. Wähle den EXAKTEN offiziellen Produktnamen aus den Web-Quellen, der optisch zum Foto passt (z.B. bei einer Figur auf einem Bücherstapel mit Buch/Stift: Tonies Hörfigur "Die Geschichte vom Löwen, der nicht schreiben konnte" / "Der Löwe, der nicht schreiben konnte" – die braunen Zacken um den Kopf sind die Mähne des Baltscheit-Löwen, KEIN Hund und KEINE Stacheln!). Erfinde NIEMALS Figuren, die optisch gar nicht zum Tier/Objekt auf dem Foto passen (ein Löwe ist KEINE Maus wie Leo Lausemaus!).
+2. Wähle den EXAKTEN offiziellen Produktnamen aus den gelieferten Web-Quellen, der optisch am besten zu den Merkmalen des Fotos passt. Achte auf charakteristische Requisiten, Farben, Standfüße und Sockel. Wenn ein Web-Treffer die abgebildeten Details und Zubehörteile exakt beschreibt, übernimm diesen offiziellen Namen – selbst wenn du eine stilisierte Tierart oder Zeichnung auf den ersten Blick anders benannt hättest. Erfinde NIEMALS Phantasienamen oder Marken, die gar nicht in den Quellen stehen.
 3. Schreibe eine spezifische, verkaufsstarke Beschreibung mit echten Details zum Produkt/Inhalt und Zustand.
 4. VERBOTEN IN DER BESCHREIBUNG: Schreibe KEINE Sätze wie "Versand möglich oder Abholung vor Ort", KEINE Bezahlfloskeln und KEINEN Privatverkauf-Disclaimer!
 
