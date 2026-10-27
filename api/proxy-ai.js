@@ -113,6 +113,12 @@ export default async function handler(req, res) {
     clientGithubPat = ''
   } = req.body || {};
 
+  const serverAdminPassword = (process.env.ADMIN_PASSWORD || 'KrautMate!2026').trim();
+  function isAdminAuthorized(body) {
+    const entered = String(body?.adminPassword || body?.payload?.adminPassword || body?.payload?.password || '').trim();
+    return entered === serverAdminPassword;
+  }
+
   // ---------------------------------------------------------------------------
   // AKTION 0: Direktes Fehler-Ticket vom Client melden (action === 'report_error')
   // ---------------------------------------------------------------------------
@@ -128,15 +134,102 @@ export default async function handler(req, res) {
   }
 
   if (action === 'verify_admin') {
-    const serverAdminPassword = (process.env.ADMIN_PASSWORD || 'KrautMate!2026').trim();
-    const entered = String(payload?.password || '').trim();
-    if (!entered) {
-      return res.status(400).json({ valid: false, error: 'Bitte ein Passwort eingeben.' });
-    }
-    if (entered === serverAdminPassword) {
+    if (isAdminAuthorized(req.body)) {
       return res.status(200).json({ valid: true, message: 'Admin autorisiert.' });
     }
     return res.status(401).json({ valid: false, error: 'Falsches Admin-Passwort.' });
+  }
+
+  const supabaseUrl = (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  const supabaseServiceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+
+  // ---------------------------------------------------------------------------
+  // OWNER-COCKPIT ADMIN-AKTIONEN (Supabase Invite-Codes & Server-Status)
+  // ---------------------------------------------------------------------------
+  if (action === 'admin_list_codes') {
+    if (!isAdminAuthorized(req.body)) {
+      return res.status(401).json({ error: 'Nicht autorisiert. Falsches Admin-Passwort.' });
+    }
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return res.status(500).json({ error: 'Supabase ist auf dem Server nicht konfiguriert.' });
+    }
+    const listRes = await fetch(`${supabaseUrl}/rest/v1/invite_codes?select=*&order=created_at.desc`, {
+      method: 'GET',
+      headers: buildSupabaseHeaders(supabaseServiceKey)
+    });
+    const codes = await listRes.json().catch(() => []);
+    if (!listRes.ok) {
+      return res.status(listRes.status).json({ error: codes?.message || 'Fehler beim Laden der Codes aus Supabase.' });
+    }
+    return res.status(200).json({
+      ok: true,
+      codes: Array.isArray(codes) ? codes : [],
+      serverConfig: {
+        provider: process.env.SERVER_AI_PROVIDER || 'neuralwatt',
+        model: process.env.SERVER_AI_MODEL || 'qwen-3.8-27b',
+        hasAiKey: Boolean(process.env.SERVER_AI_API_KEY),
+        aiKeyPreview: process.env.SERVER_AI_API_KEY ? `${process.env.SERVER_AI_API_KEY.slice(0, 5)}...${process.env.SERVER_AI_API_KEY.slice(-4)}` : 'nicht hinterlegt',
+        hasTavily: Boolean(process.env.SERVER_TAVILY_API_KEY),
+        hasSupabase: Boolean(supabaseUrl && supabaseServiceKey)
+      }
+    });
+  }
+
+  if (action === 'admin_upsert_code') {
+    if (!isAdminAuthorized(req.body)) {
+      return res.status(401).json({ error: 'Nicht autorisiert. Falsches Admin-Passwort.' });
+    }
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return res.status(500).json({ error: 'Supabase ist auf dem Server nicht konfiguriert.' });
+    }
+    const rawCode = String(payload.code || '').trim().toUpperCase();
+    if (!rawCode) {
+      return res.status(400).json({ error: 'Bitte einen gültigen Code angeben.' });
+    }
+    const label = String(payload.label || 'Freunde-Beta').trim();
+    const creditsTotal = Math.max(1, Number(payload.creditsTotal ?? payload.credits_total) || 50);
+    const creditsUsed = Math.max(0, Number(payload.creditsUsed ?? payload.credits_used) || 0);
+    const isActive = payload.isActive !== false && payload.is_active !== false;
+
+    const upsertRes = await fetch(`${supabaseUrl}/rest/v1/invite_codes`, {
+      method: 'POST',
+      headers: buildSupabaseHeaders(supabaseServiceKey, {
+        Prefer: 'resolution=merge-duplicates,return=representation'
+      }),
+      body: JSON.stringify({
+        code: rawCode,
+        label,
+        credits_total: creditsTotal,
+        credits_used: creditsUsed,
+        is_active: isActive
+      })
+    });
+    const upsertData = await upsertRes.json().catch(() => null);
+    if (!upsertRes.ok) {
+      return res.status(upsertRes.status).json({ error: upsertData?.message || 'Fehler beim Speichern in Supabase.' });
+    }
+    return res.status(200).json({ ok: true, item: Array.isArray(upsertData) ? upsertData[0] : upsertData });
+  }
+
+  if (action === 'admin_delete_code') {
+    if (!isAdminAuthorized(req.body)) {
+      return res.status(401).json({ error: 'Nicht autorisiert. Falsches Admin-Passwort.' });
+    }
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return res.status(500).json({ error: 'Supabase ist auf dem Server nicht konfiguriert.' });
+    }
+    const targetCode = String(payload.code || '').trim().toUpperCase();
+    if (!targetCode) {
+      return res.status(400).json({ error: 'Code fehlt.' });
+    }
+    const delRes = await fetch(`${supabaseUrl}/rest/v1/invite_codes?code=eq.${encodeURIComponent(targetCode)}`, {
+      method: 'DELETE',
+      headers: buildSupabaseHeaders(supabaseServiceKey)
+    });
+    if (!delRes.ok) {
+      return res.status(delRes.status).json({ error: 'Fehler beim Löschen des Codes.' });
+    }
+    return res.status(200).json({ ok: true, deleted: targetCode });
   }
 
   if (action === 'list_models') {
@@ -145,9 +238,6 @@ export default async function handler(req, res) {
     const mData = await mRes.json().catch(() => ({}));
     return res.status(200).json(mData);
   }
-
-  const supabaseUrl = (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
-  const supabaseServiceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 
   if (!supabaseUrl || !supabaseServiceKey) {
     const errMsg = 'Server-Konfiguration unvollständig: SUPABASE_URL oder SUPABASE_SERVICE_ROLE_KEY fehlt in Vercel (oder Redeploy nötig).';
@@ -309,8 +399,8 @@ export default async function handler(req, res) {
     // AKTION 3: Vision / KI-Analyse über Server-Key
     // -------------------------------------------------------------------------
     if (action === 'vision') {
-      const provider = (process.env.SERVER_AI_PROVIDER || 'gemini').toLowerCase().trim();
-      const apiKey = (process.env.SERVER_AI_API_KEY || '').trim();
+      const provider = (process.env.SERVER_AI_PROVIDER || 'neuralwatt').toLowerCase().trim();
+      const apiKey = (process.env.SERVER_AI_API_KEY || payload.clientApiKey || '').trim();
       if (!apiKey) {
         const msg = 'SERVER_AI_API_KEY fehlt in den Vercel Environment Variables.';
         const ticket = await createAutoGitHubTicket({
@@ -442,8 +532,8 @@ export default async function handler(req, res) {
           openrouter: 'https://openrouter.ai/api/v1',
           groq: 'https://api.groq.com/openai/v1'
         };
-        const baseUrl = (process.env.SERVER_AI_BASE_URL || defaultUrls[provider] || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
-        const model = (process.env.SERVER_AI_MODEL || (provider === 'openrouter' ? 'google/gemini-2.5-flash' : 'gemma-4-31b')).trim();
+        const baseUrl = (process.env.SERVER_AI_BASE_URL || defaultUrls[provider] || 'https://api.neuralwatt.com/v1').replace(/\/+$/, '');
+        const model = (payload.modelOverride || process.env.SERVER_AI_MODEL || (provider === 'neuralwatt' ? 'qwen-3.8-27b' : 'gemma-4-31b')).trim();
 
         let userContent = userPrompt;
         if (images && images.length > 0) {
@@ -471,8 +561,9 @@ export default async function handler(req, res) {
               { role: 'user', content: userContent }
             ],
             temperature: 0.2,
-            max_tokens: Math.min(1600, Number(maxTokens) || 1300)
-          })
+            max_tokens: Math.min(2500, Number(maxTokens) || 1600)
+          }),
+          signal: AbortSignal.timeout(28000)
         });
 
         const oaiData = await oaiRes.json().catch(() => ({}));
@@ -488,8 +579,8 @@ export default async function handler(req, res) {
           return res.status(oaiRes.status).json({ error: errMsg, ticket });
         }
 
-        rawText = oaiData?.choices?.[0]?.message?.content || '';
-        usedModel = `Cloud (${model})`;
+        rawText = (oaiData?.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        usedModel = `${provider === 'neuralwatt' ? 'Neuralwatt' : 'Cloud'} (${model})`;
       }
 
       if (!rawText) {

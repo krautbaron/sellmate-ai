@@ -80,8 +80,8 @@
   <header class="sticky top-0 z-30 glass-header px-4 pt-3 pb-3">
     <div class="max-w-2xl mx-auto space-y-3">
       <div class="flex items-center justify-between">
-        <!-- Brand Logo -->
-        <div class="flex items-center gap-2.5">
+        <!-- Brand Logo (5x Klick öffnet geheimen Admin-Login) -->
+        <div id="brandLogoTrigger" class="flex items-center gap-2.5 cursor-pointer select-none active:scale-95 transition" title="SellMate AI">
           <div class="w-9 h-9 rounded-2xl cta-gradient flex items-center justify-center shadow-lg shadow-emerald-500/25 ring-1 ring-white/15">
             <i data-lucide="sparkles" class="w-4 h-4 text-white"></i>
           </div>
@@ -108,20 +108,23 @@
             <span id="authHeaderLabel" class="hidden sm:inline font-medium">Anmelden</span>
           </button>
 
+          <!-- Öffentlicher Einladungscode & Guthaben-Button -->
           <button
             id="btnUnlockOrStatus"
-            class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-white/10 hover:border-white/20 text-[11px] font-semibold text-slate-300 transition active:scale-95"
-            title="KI-Status / Tresor entsperren"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-white/10 hover:border-emerald-500/40 text-[11px] font-semibold text-slate-300 transition active:scale-95"
+            title="Einladungscode & Guthaben"
           >
-            <span id="apiKeyStatusDot" class="w-2 h-2 rounded-full bg-amber-400"></span>
-            <span id="activeProviderHeaderLabel">Verbinden</span>
+            <span id="apiKeyStatusDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span id="activeProviderHeaderLabel">🎟️ Code eingeben</span>
           </button>
+
+          <!-- Verstecktes Owner-Cockpit (Nur sichtbar wenn Admin aktiv entsperrt ist) -->
           <button
             id="btnAdminPanel"
-            class="w-9 h-9 rounded-full bg-slate-900/90 border border-white/10 hover:border-white/20 flex items-center justify-center text-slate-300 hover:text-white transition active:scale-95"
-            title="Einstellungen, API-Keys & Handy-Sync"
+            class="hidden w-9 h-9 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 hover:bg-amber-500/25 transition active:scale-95 shadow-sm"
+            title="Owner-Cockpit (Admin)"
           >
-            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+            <i data-lucide="shield-check" class="w-4 h-4"></i>
           </button>
         </div>
       </div>
@@ -650,19 +653,112 @@
   </main>
 
   <!-- ===================================================================== -->
-  <!-- ADMIN-OBERFLÄCHE (API-Keys, Handy-Sync & Prompts)                     -->
+  <!-- ÖFFENTLICHES MODAL: EINLADUNGSCODE & GUTHABEN (FÜR NUTZER)             -->
   <!-- ===================================================================== -->
-  <div id="settingsModal" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
-    <div class="bg-slate-900 border border-white/10 rounded-3xl max-w-2xl w-full p-4 sm:p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col">
-      <!-- Admin Header -->
+  <div id="inviteUserModal" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-slate-900 border border-white/10 rounded-3xl max-w-md w-full p-5 sm:p-6 space-y-4 shadow-2xl flex flex-col">
+      <!-- Header -->
       <div class="flex items-center justify-between border-b border-white/10 pb-3">
         <div class="flex items-center gap-2.5">
-          <div class="w-9 h-9 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+          <div class="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+            <i data-lucide="ticket" class="w-5 h-5"></i>
           </div>
           <div>
-            <h3 class="font-bold text-base leading-tight text-white">Einstellungen & Handy-Kopplung</h3>
-            <p class="text-[11px] text-slate-400">KI-Anbieter, Live-Suche, QR-Sync & System-Prompts</p>
+            <h3 class="font-bold text-base text-white">SellMate Test-Zugang</h3>
+            <p class="text-xs text-slate-400">Einladungscode & kostenloses Scan-Guthaben</p>
+          </div>
+        </div>
+        <button id="btnCloseInviteUserModal" class="p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Content -->
+      <div class="space-y-4 text-xs text-slate-300">
+        <!-- Aktueller Status & Credits -->
+        <div id="userInviteStatusCard" class="bg-gradient-to-br from-emerald-950/40 via-slate-950 to-slate-950 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+              <span id="userInviteDot" class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+              <span id="userInviteStatusTitle">Code aktiv</span>
+            </span>
+            <span id="userInviteCreditsBadge" class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+              50 / 50 Credits
+            </span>
+          </div>
+
+          <!-- Progress Bar -->
+          <div class="space-y-1">
+            <div class="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-white/5">
+              <div id="userInviteProgressBar" class="bg-emerald-500 h-2.5 rounded-full transition-all duration-500" style="width: 100%"></div>
+            </div>
+            <div class="flex justify-between text-[10px] text-slate-400">
+              <span id="userInviteLabelHint">Freunde-Beta</span>
+              <span id="userInviteRemainingDetail">50 Analysen verbleibend</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Code Eingabe -->
+        <div class="space-y-2">
+          <label for="userInviteCodeInput" class="block font-semibold text-slate-200">Anderen Einladungscode eingeben:</label>
+          <div class="flex gap-2">
+            <input
+              type="text"
+              id="userInviteCodeInput"
+              placeholder="z.B. BETA-2026"
+              class="flex-1 rounded-2xl bg-slate-950 border border-slate-800 px-4 py-2.5 text-sm text-white uppercase font-mono tracking-wider focus:border-emerald-500 focus:outline-none placeholder-slate-500"
+            />
+            <button
+              type="button"
+              id="btnUserActivateInviteCode"
+              class="px-4 py-2.5 rounded-2xl cta-gradient text-slate-950 font-extrabold text-xs shrink-0 transition active:scale-95"
+            >
+              Aktivieren
+            </button>
+          </div>
+          <p id="userInviteFeedback" class="hidden text-xs font-medium"></p>
+        </div>
+
+        <!-- Share & Remove Actions -->
+        <div class="pt-2 border-t border-white/10 flex items-center justify-between">
+          <button
+            type="button"
+            id="btnUserShareInviteLink"
+            class="text-xs text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1.5 transition"
+          >
+            <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
+            <span>Einladungslink teilen</span>
+          </button>
+          <button
+            type="button"
+            id="btnUserRemoveInviteCode"
+            class="text-xs text-rose-400/80 hover:text-rose-300 font-medium transition"
+          >
+            Code abmelden
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- OWNER-COCKPIT (NUR FÜR BETREIBER / ADMIN)                              -->
+  <!-- ===================================================================== -->
+  <div id="settingsModal" class="fixed inset-0 z-50 hidden bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-slate-900 border border-amber-500/30 rounded-3xl max-w-2xl w-full p-4 sm:p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col">
+      <!-- Owner Header -->
+      <div class="flex items-center justify-between border-b border-white/10 pb-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-md shadow-amber-500/10">
+            <i data-lucide="shield-check" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="font-extrabold text-base leading-tight text-white">Owner-Cockpit</h3>
+              <span class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-amber-400/20 text-amber-300 border border-amber-400/30">ADMIN</span>
+            </div>
+            <p class="text-[11px] text-slate-400">Codes verwalten, Neuralwatt Qwen 3.8 & System-Prompts</p>
           </div>
         </div>
         <div class="flex items-center gap-2">
@@ -676,297 +772,213 @@
         </div>
       </div>
 
-      <!-- Admin Sub-Navigation Tabs -->
+      <!-- Owner Sub-Navigation Tabs -->
       <div class="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-2xl border border-white/5 text-xs font-semibold">
-        <button type="button" data-admintab="providers" class="admin-tab-btn py-2 px-2 rounded-xl bg-emerald-500 text-slate-950 font-bold transition flex items-center justify-center gap-1.5">
+        <button type="button" data-admintab="codes" class="admin-tab-btn py-2 px-2 rounded-xl bg-amber-400 text-slate-950 font-bold transition flex items-center justify-center gap-1.5">
+          <i data-lucide="ticket" class="w-3.5 h-3.5"></i>
+          <span>1. Invite-Codes</span>
+        </button>
+        <button type="button" data-admintab="ai_prompts" class="admin-tab-btn py-2 px-2 rounded-xl text-slate-300 hover:text-white transition flex items-center justify-center gap-1.5">
           <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
-          <span>1. KI & Keys</span>
+          <span>2. KI & Prompts</span>
         </button>
-        <button type="button" data-admintab="sync" class="admin-tab-btn py-2 px-2 rounded-xl text-slate-300 hover:text-white transition flex items-center justify-center gap-1.5">
-          <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
-          <span>2. Handy-Sync</span>
-        </button>
-        <button type="button" data-admintab="prompts" class="admin-tab-btn py-2 px-2 rounded-xl text-slate-300 hover:text-white transition flex items-center justify-center gap-1.5">
-          <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
-          <span>3. Prompts</span>
+        <button type="button" data-admintab="system_backup" class="admin-tab-btn py-2 px-2 rounded-xl text-slate-300 hover:text-white transition flex items-center justify-center gap-1.5">
+          <i data-lucide="server" class="w-3.5 h-3.5"></i>
+          <span>3. System & Backup</span>
         </button>
       </div>
 
       <!-- Scrollable Tab Body -->
       <div class="flex-1 overflow-y-auto space-y-4 pr-1">
 
-        <!-- TAB 1: KI-ANBIETER & API-KEYS -->
-        <div id="adminTabProviders" class="space-y-3.5 text-xs text-slate-300">
-
-          <!-- EINLADUNGS-CODE / FREUNDE-BETA (Vercel & Supabase Proxy) -->
-          <div class="bg-gradient-to-br from-emerald-950/50 via-slate-950 to-slate-950 border border-emerald-500/40 rounded-2xl p-3.5 space-y-2.5 shadow-lg">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <span class="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs">🎟️</span>
-                <div>
-                  <span class="font-bold text-emerald-300 block text-xs">Einladungscode (Freunde-Beta)</span>
-                  <span class="text-[10px] text-slate-400">Nutze SellMate AI ohne eigenen API-Key</span>
-                </div>
-              </div>
-              <span id="inviteCodeStatusBadge" class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-900 border border-white/10 text-slate-400">
-                Kein Code aktiv
-              </span>
+        <!-- TAB 1: INVITE-CODES (SUPABASE LIVE-VERWALTUNG) -->
+        <div id="adminTabCodes" class="space-y-4 text-xs text-slate-300">
+          <!-- 1-Klick Owner Code Aktivator -->
+          <div class="bg-gradient-to-r from-amber-950/40 via-slate-950 to-slate-950 border border-amber-500/30 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-lg">
+            <div>
+              <span class="font-bold text-amber-300 block text-xs">👑 Eigener Owner-Zugang</span>
+              <span class="text-[11px] text-slate-400">Aktiviert deinen persönlichen Code (9999 Credits) auf diesem Gerät</span>
             </div>
+            <button
+              type="button"
+              id="btnAdminActivateOwnerCode"
+              class="px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs shrink-0 transition active:scale-95 shadow-md shadow-amber-400/20"
+            >
+              Owner-Code aktivieren
+            </button>
+          </div>
 
-            <div class="flex gap-2">
+          <!-- Code Erstellen / Aufladen Formular -->
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <h4 class="font-bold text-slate-200 text-xs flex items-center gap-1.5">
+              <i data-lucide="plus-circle" class="w-4 h-4 text-emerald-400"></i>
+              <span>Neuen Code erstellen oder aufladen</span>
+            </h4>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <input
                 type="text"
-                id="inviteCodeInput"
-                placeholder="Code eingeben (z.B. BETA-2026)"
-                class="flex-1 rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-white uppercase font-mono tracking-wider focus:border-emerald-500 focus:outline-none placeholder-slate-500"
+                id="adminNewCodeInput"
+                placeholder="Code (z.B. LISA-2026)"
+                class="rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-white uppercase font-mono tracking-wider focus:border-amber-400 focus:outline-none"
               />
-              <button
-                type="button"
-                id="btnActivateInviteCode"
-                class="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shrink-0 transition"
-              >
-                Aktivieren
-              </button>
-              <button
-                type="button"
-                id="btnClearInviteCode"
-                class="hidden px-2.5 py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40 font-semibold text-xs shrink-0 transition"
-                title="Code entfernen und eigene Keys nutzen"
-              >
-                ✕
-              </button>
+              <input
+                type="text"
+                id="adminNewLabelInput"
+                placeholder="Name / Notiz (z.B. Lisa & Markus)"
+                class="rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-white focus:border-amber-400 focus:outline-none"
+              />
+              <input
+                type="number"
+                id="adminNewCreditsInput"
+                placeholder="Credits"
+                value="50"
+                min="1"
+                max="9999"
+                class="rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-white font-mono focus:border-amber-400 focus:outline-none"
+              />
             </div>
-
-            <div id="inviteShareBox" class="hidden flex items-center justify-between pt-1 border-t border-white/5">
-              <span id="inviteRemainingHint" class="text-[11px] text-emerald-400 font-semibold"></span>
-              <button
-                type="button"
-                id="btnCopyInviteShareLink"
-                class="text-[11px] text-slate-300 hover:text-white underline font-medium flex items-center gap-1 transition"
-              >
-                <i data-lucide="share-2" class="w-3 h-3 text-emerald-400"></i>
-                <span>Link für Freunde teilen</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Trenner zum eigenen API-Key (BYOK) Modus -->
-          <div class="relative flex py-1 items-center">
-            <div class="flex-grow border-t border-white/10"></div>
-            <span class="flex-shrink mx-2 text-[10px] uppercase font-bold text-slate-500 tracking-wider">ODER EIGENER API-KEY (ADMIN)</span>
-            <div class="flex-grow border-t border-white/10"></div>
-          </div>
-
-          <div class="space-y-1.5">
-            <label for="providerSelect" class="block font-semibold text-slate-200">Aktiver KI-Anbieter</label>
-            <select
-              id="providerSelect"
-              class="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
+            <button
+              type="button"
+              id="btnAdminCreateCode"
+              class="w-full py-2.5 px-4 rounded-xl cta-gradient text-slate-950 font-extrabold text-xs transition active:scale-95 flex items-center justify-center gap-1.5"
             >
-              <option value="neuralwatt">⚡ Neuralwatt Cloud (api.neuralwatt.com – Günstige Vision-Modelle)</option>
-              <option value="gemini">✨ Google Gemini API (Google AI Studio)</option>
-              <option value="openrouter">🌐 OpenRouter.ai (Hunderte günstige & freie Vision-Modelle)</option>
-              <option value="groq">🚀 Groq Cloud (Extrem schnell & günstig)</option>
-              <option value="custom_openai">🔧 Eigener OpenAI-kompatibler Server (vLLM / Ollama / LiteLLM)</option>
-            </select>
-            <p id="providerHelperText" class="text-[11px] text-slate-400 leading-relaxed"></p>
+              <i data-lucide="save" class="w-4 h-4"></i>
+              <span>In Supabase speichern / aufladen</span>
+            </button>
           </div>
 
-          <div id="baseUrlWrapper" class="hidden space-y-1.5">
-            <label for="baseUrlInput" class="block font-semibold text-slate-200">API Base-URL (OpenAI-kompatibel)</label>
-            <input
-              type="text"
-              id="baseUrlInput"
-              placeholder="https://api.neuralwatt.com/v1"
-              class="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
-            />
-          </div>
-
-          <div class="space-y-1.5">
+          <!-- Live Liste aller Codes in Supabase -->
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
             <div class="flex items-center justify-between">
-              <label for="apiKeyInput" id="apiKeyLabel" class="block font-semibold text-slate-200">API-Key</label>
-              <a id="apiKeyHelpLink" href="https://neuralwatt.com" target="_blank" rel="noopener" class="text-[11px] text-emerald-400 underline hover:text-emerald-300">
-                API-Key erstellen ↗
-              </a>
-            </div>
-            <input
-              type="password"
-              id="apiKeyInput"
-              placeholder="sk-..."
-              class="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
-            />
-          </div>
-
-          <div class="space-y-1.5">
-            <div class="flex items-center justify-between">
-              <label for="modelSelect" class="block font-semibold text-slate-200">Vision-Modell</label>
-              <button type="button" id="btnFetchModels" class="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 underline">
-                Modelle vom Anbieter laden & testen
+              <h4 class="font-bold text-slate-200 text-xs flex items-center gap-1.5">
+                <i data-lucide="database" class="w-4 h-4 text-emerald-400"></i>
+                <span>Aktive Codes in Supabase</span>
+              </h4>
+              <button
+                type="button"
+                id="btnAdminRefreshCodes"
+                class="text-[11px] text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 transition"
+              >
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                <span>Aktualisieren</span>
               </button>
             </div>
-            <select
-              id="modelSelect"
-              class="w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
-            ></select>
-            <input
-              type="text"
-              id="customModelInput"
-              placeholder="Modell-ID eingeben (z.B. qwen3.6-35b, gemma-4-31b)"
-              class="hidden mt-2 w-full rounded-xl bg-slate-950 border border-slate-800 px-3.5 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
-            />
-            <p id="modelStatusHint" class="text-[11px] text-slate-400 leading-relaxed"></p>
-          </div>
-
-          <!-- Tavily Live-Web-Search Integration -->
-          <div class="bg-slate-950 border border-emerald-500/30 rounded-2xl p-3.5 space-y-2">
-            <div class="flex items-center justify-between">
-              <label for="tavilyApiKeyInput" class="block font-bold text-emerald-400 flex items-center gap-1.5">
-                <i data-lucide="globe" class="w-3.5 h-3.5"></i>
-                <span>Tavily Web-Search API-Key (für exakte Produktdaten & Preise)</span>
-              </label>
-              <a href="https://app.tavily.com" target="_blank" rel="noopener" class="text-[11px] text-emerald-400 underline hover:text-emerald-300">
-                Gratis Key ↗
-              </a>
+            <div id="adminCodesListContainer" class="space-y-2">
+              <div class="text-center py-4 text-slate-500 text-xs">Lade Codes aus Supabase...</div>
             </div>
-            <input
-              type="password"
-              id="tavilyApiKeyInput"
-              placeholder="tvly-..."
-              class="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
-            />
+          </div>
+        </div>
+
+        <!-- TAB 2: KI-MODELL (NEURALWATT) & PROMPTS -->
+        <div id="adminTabAiPrompts" class="hidden space-y-4 text-xs text-slate-300">
+          <!-- Neuralwatt Modell-Wahl -->
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="font-bold text-emerald-400 block text-xs">⚡ Aktives Neuralwatt-Modell</span>
+                <span class="text-[11px] text-slate-400">Standard ist das Flagship Multimodal-Modell Qwen 3.8 27B</span>
+              </div>
+              <span class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                Empfohlen: qwen-3.8-27b
+              </span>
+            </div>
+            <select
+              id="adminNeuralwattModelSelect"
+              class="w-full rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2.5 text-xs text-white focus:border-amber-400 focus:outline-none"
+            >
+              <option value="qwen-3.8-27b">⭐ Qwen 3.8 27B Vision (Bestes Multimodal-Modell, extrem stabil & schnell)</option>
+              <option value="gemma-4-31b">Gemma 4 Multimodal 31B (Google Architektur auf Neuralwatt)</option>
+              <option value="kimi-k3">Moonshot Kimi K3 Vision (Starke Texterkennung auf Labels)</option>
+              <option value="glm-5.3-flash">GLM 5.3 Flash Multimodal (Schnelles Vision-Modell)</option>
+            </select>
           </div>
 
-          <!-- GitHub Live-Diagnose & Fehler-Sync (PAT) -->
-          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-3.5 space-y-2">
-            <div class="flex items-center justify-between gap-2">
-              <label for="githubPatInput" class="block font-bold text-slate-200 flex items-center gap-1.5">
-                <i data-lucide="bug" class="w-3.5 h-3.5 text-emerald-400"></i>
-                <span>GitHub PAT für automatische Live-Diagnose</span>
-              </label>
-              <a href="https://github.com/settings/tokens/new?description=SellMate-AI-Diagnose&scopes=public_repo" target="_blank" rel="noopener" class="text-[11px] text-emerald-400 underline hover:text-emerald-300 shrink-0">
-                Token erstellen ↗
+          <!-- Optionaler Server/Client API-Key Override -->
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="font-bold text-slate-200 block text-xs">🔑 Neuralwatt API-Key (Admin / Device-Key)</span>
+                <span class="text-[11px] text-slate-400">Wird für alle Bild-Scans der App verwendet</span>
+              </div>
+              <a href="https://neuralwatt.com" target="_blank" rel="noopener" class="text-[11px] text-emerald-400 underline hover:text-emerald-300">
+                Neuralwatt Dashboard ↗
               </a>
             </div>
             <div class="flex gap-2">
               <input
                 type="password"
-                id="githubPatInput"
-                placeholder="ghp_... oder github_pat_..."
-                class="flex-1 rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+                id="adminNeuralwattApiKeyInput"
+                placeholder="nw_... oder sk-..."
+                class="flex-1 rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-xs text-white font-mono focus:border-amber-400 focus:outline-none"
               />
               <button
                 type="button"
-                id="btnTestGithubPat"
-                class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-semibold text-xs shrink-0 transition"
+                id="btnAdminSaveAiKey"
+                class="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs shrink-0 transition"
               >
-                Testen
+                Speichern
               </button>
             </div>
-            <p id="githubPatStatusHint" class="text-[11px] text-slate-400 leading-relaxed">
-              Sendet Diagnose-Protokolle beim Testen automatisch an <code class="text-slate-300">krautbaron/sellmate-ai</code>.
-            </p>
+            <p id="adminAiKeyHint" class="text-[11px] text-slate-400"></p>
           </div>
 
-          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-3 space-y-2">
-            <label class="flex items-start gap-2.5 cursor-pointer select-none">
-              <input type="checkbox" id="toggleProviderFallback" checked class="mt-0.5 rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500" />
-              <div>
-                <div class="font-semibold text-slate-200">Automatischer Anbieter-Fallback bei Rate-Limits (429)</div>
-                <div class="text-[11px] text-slate-400 leading-relaxed">
-                  Wechselt bei Überlastung nahtlos auf deinen zweiten gespeicherten Anbieter.
-                </div>
-              </div>
-            </label>
+          <!-- Prompt Editor pro Plattform -->
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <label for="adminPromptPlatformSelect" class="font-bold text-slate-200 text-xs">System-Prompt anpassen:</label>
+              <select id="adminPromptPlatformSelect" class="rounded-xl bg-slate-900 border border-slate-800 px-3 py-1.5 text-xs text-white focus:border-amber-400 focus:outline-none">
+                <option value="kleinanzeigen">Kleinanzeigen.de</option>
+                <option value="vinted">Vinted</option>
+                <option value="willhaben">Willhaben.at</option>
+                <option value="ricardo_shpock">Ricardo / Shpock</option>
+              </select>
+            </div>
+            <textarea
+              id="systemPromptTextarea"
+              rows="10"
+              class="w-full font-mono text-[11px] leading-relaxed rounded-xl bg-slate-900 border border-slate-800 p-3 text-slate-200 focus:border-amber-400 focus:outline-none"
+            ></textarea>
+            <div class="flex items-center justify-between gap-2">
+              <button id="btnResetPrompt" type="button" class="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition">
+                Standard wiederherstellen
+              </button>
+              <button id="btnSavePrompt" type="button" class="py-2 px-4 rounded-xl cta-gradient text-slate-950 font-bold text-xs transition">
+                Prompt speichern
+              </button>
+            </div>
           </div>
-
-          <button id="btnSaveSettings" class="w-full py-3 px-4 rounded-2xl cta-gradient text-slate-950 font-extrabold text-xs transition">
-            Einstellungen speichern
-          </button>
         </div>
 
-        <!-- TAB 2: HANDY-SYNC (QR-CODE / MAGIC-LINK & AES PIN-TRESOR) -->
-        <div id="adminTabSync" class="hidden space-y-4 text-xs text-slate-300">
+        <!-- TAB 3: SYSTEM, BACKUP & CLOUD-SYNC -->
+        <div id="adminTabSystemBackup" class="hidden space-y-4 text-xs text-slate-300">
+          <!-- Server Status Badges -->
           <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
-            <div>
-              <div class="font-bold text-emerald-400 text-sm">Option A: 1-Scan Handy-Kopplung (QR-Code)</div>
-              <p class="text-[11px] text-slate-400 mt-0.5">
-                Scanne diesen QR-Code mit deinem Smartphone, um alle Keys & Einstellungen in 1 Sekunde zu übertragen.
-              </p>
-            </div>
-
-            <div class="flex flex-col sm:flex-row items-center gap-4 pt-1">
-              <div id="qrCodeWrapper" class="bg-white p-3 rounded-2xl shrink-0 flex items-center justify-center w-40 h-40">
-                <img id="syncQrImage" alt="Handy-Sync QR-Code" class="w-full h-full object-contain hidden" />
-                <span id="syncQrPlaceholder" class="text-[11px] text-slate-600 text-center px-2">Klicke auf „QR-Code erzeugen“</span>
+            <h4 class="font-bold text-slate-200 text-xs flex items-center gap-1.5">
+              <i data-lucide="server" class="w-4 h-4 text-emerald-400"></i>
+              <span>Vercel-Server & Backend-Status</span>
+            </h4>
+            <div id="adminServerStatusContainer" class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div class="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
+                <span class="text-[10px] text-slate-400 block font-semibold">KI-BACKEND</span>
+                <span id="badgeServerAiStatus" class="text-xs font-bold text-emerald-400">Neuralwatt</span>
               </div>
-              <div class="space-y-2 flex-1 w-full">
-                <button type="button" id="btnGenerateSyncQr" class="w-full py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition flex items-center justify-center gap-1.5">
-                  <i data-lucide="qr-code" class="w-4 h-4"></i>
-                  <span>QR-Code erzeugen</span>
-                </button>
-                <button type="button" id="btnCopyMagicLink" class="w-full py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition flex items-center justify-center gap-1.5">
-                  <i data-lucide="link" class="w-3.5 h-3.5 text-emerald-400"></i>
-                  <span>Magic-Link kopieren</span>
-                </button>
+              <div class="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
+                <span class="text-[10px] text-slate-400 block font-semibold">DATABASE</span>
+                <span id="badgeServerSupabaseStatus" class="text-xs font-bold text-emerald-400">Supabase OK</span>
+              </div>
+              <div class="p-3 rounded-xl bg-slate-900 border border-white/5 space-y-1">
+                <span class="text-[10px] text-slate-400 block font-semibold">WEB-SUCHE</span>
+                <span id="badgeServerTavilyStatus" class="text-xs font-bold text-emerald-400">Tavily OK</span>
               </div>
             </div>
           </div>
 
+          <!-- Artikel Bestand JSON Backup -->
           <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
             <div>
-              <div class="font-bold text-teal-400 text-sm">Option B: Verschlüsselter PIN-Tresor (AES-256)</div>
+              <div class="font-bold text-slate-200 text-xs">Artikel-Bestand sichern / übertragen (JSON-Backup)</div>
               <p class="text-[11px] text-slate-400 mt-0.5">
-                Verschlüssele deine Keys mit einer kurzen PIN für schnelles Entsperren.
-              </p>
-            </div>
-
-            <div class="flex flex-col sm:flex-row gap-2">
-              <input
-                type="password"
-                id="vaultPinCreateInput"
-                placeholder="Kurze PIN wählen (z.B. 2580)"
-                class="flex-1 rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
-              />
-              <button type="button" id="btnCreateVaultBlob" class="py-2 px-4 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-extrabold text-xs shrink-0 transition">
-                Tresor erzeugen
-              </button>
-            </div>
-
-            <div id="vaultOutputBox" class="hidden space-y-1.5">
-              <label class="text-[10px] text-slate-400 font-semibold">Verschlüsselter Tresor-String:</label>
-              <textarea id="vaultBlobTextarea" rows="3" readonly class="w-full font-mono text-[10px] bg-slate-900 border border-slate-800 rounded-lg p-2 text-emerald-300"></textarea>
-            </div>
-          </div>
-
-          <!-- Option C: GitHub Cloud-Sync für Handy ↔ PC -->
-          <div class="bg-slate-950 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
-            <div>
-              <div class="font-bold text-emerald-400 text-sm flex items-center gap-1.5">
-                <i data-lucide="cloud" class="w-4 h-4"></i>
-                <span>Option C: 1-Klick GitHub Cloud-Sync (Handy ↔ PC)</span>
-              </div>
-              <p class="text-[11px] text-slate-400 mt-0.5">
-                Gleiche deinen Artikel-Bestand drahtlos zwischen Handy und PC ab – sicher über deinen vorhandenen GitHub PAT.
-              </p>
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <button type="button" id="btnCloudPushBatch" class="py-2.5 px-3 rounded-xl cta-gradient text-slate-950 font-extrabold text-xs transition flex items-center justify-center gap-1.5">
-                <i data-lucide="cloud-upload" class="w-4 h-4"></i>
-                <span>Hochladen (Cloud)</span>
-              </button>
-              <button type="button" id="btnCloudPullBatch" class="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition flex items-center justify-center gap-1.5">
-                <i data-lucide="cloud-download" class="w-4 h-4 text-emerald-400"></i>
-                <span>Herunterladen</span>
-              </button>
-            </div>
-            <p id="cloudSyncStatusText" class="text-[11px] text-slate-400 text-center"></p>
-          </div>
-
-          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
-            <div>
-              <div class="font-bold text-slate-200 text-sm">Option D: Artikel-Bestand sichern / übertragen (JSON-Backup)</div>
-              <p class="text-[11px] text-slate-400 mt-0.5">
-                Exportiere alle deine gescannten Artikel inkl. Fotos, Texten und Verkaufslinks als Datei oder lade ein Backup ein.
+                Exportiere alle deine gescannten Artikel inkl. Fotos und Texten als Datei oder lade ein Backup ein.
               </p>
             </div>
             <div class="grid grid-cols-2 gap-2">
@@ -981,33 +993,29 @@
               </label>
             </div>
           </div>
-        </div>
 
-        <!-- TAB 3: SYSTEM-PROMPTS PRO PLATTFORM -->
-        <div id="adminTabPrompts" class="hidden space-y-3 text-xs text-slate-300">
-          <div class="flex items-center justify-between">
-            <label for="adminPromptPlatformSelect" class="font-semibold text-slate-200">Plattform auswählen:</label>
-            <select id="adminPromptPlatformSelect" class="rounded-xl bg-slate-950 border border-slate-800 px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none">
-              <option value="kleinanzeigen">Kleinanzeigen.de</option>
-              <option value="vinted">Vinted</option>
-              <option value="willhaben">Willhaben.at</option>
-              <option value="ricardo_shpock">Ricardo / Shpock</option>
-            </select>
-          </div>
-
-          <textarea
-            id="systemPromptTextarea"
-            rows="12"
-            class="w-full font-mono text-xs leading-relaxed rounded-2xl bg-slate-950 border border-slate-800 p-3 text-slate-200 focus:border-emerald-500 focus:outline-none"
-          ></textarea>
-
-          <div class="flex items-center justify-between gap-2">
-            <button id="btnResetPrompt" type="button" class="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition">
-              Standard wiederherstellen
-            </button>
-            <button id="btnSavePrompt" type="button" class="py-2 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition">
-              Prompt speichern
-            </button>
+          <!-- Cloud-Sync Option -->
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div>
+              <div class="font-bold text-slate-200 text-xs flex items-center gap-1.5">
+                <i data-lucide="cloud" class="w-4 h-4 text-emerald-400"></i>
+                <span>GitHub Cloud-Sync (Handy ↔ PC)</span>
+              </div>
+              <p class="text-[11px] text-slate-400 mt-0.5">
+                Gleiche deinen Artikel-Bestand drahtlos zwischen Handy und PC ab.
+              </p>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" id="btnCloudPushBatch" class="py-2.5 px-3 rounded-xl cta-gradient text-slate-950 font-extrabold text-xs transition flex items-center justify-center gap-1.5">
+                <i data-lucide="cloud-upload" class="w-4 h-4"></i>
+                <span>Hochladen (Cloud)</span>
+              </button>
+              <button type="button" id="btnCloudPullBatch" class="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition flex items-center justify-center gap-1.5">
+                <i data-lucide="cloud-download" class="w-4 h-4 text-emerald-400"></i>
+                <span>Herunterladen</span>
+              </button>
+            </div>
+            <p id="cloudSyncStatusText" class="text-[11px] text-slate-400 text-center"></p>
           </div>
         </div>
 
@@ -1022,7 +1030,7 @@
         <i data-lucide="shield-check" class="w-6 h-6"></i>
       </div>
       <div class="space-y-1">
-        <h3 class="font-bold text-base text-white">SellMate Admin-Bereich</h3>
+        <h3 class="font-bold text-base text-white">SellMate Owner-Cockpit</h3>
         <p class="text-xs text-slate-400">Dieser Bereich ist geschützt. Bitte gib das Admin-Passwort ein.</p>
       </div>
       <form id="adminAuthForm" class="space-y-3" onsubmit="return false;">
@@ -1052,34 +1060,6 @@
           </button>
         </div>
       </form>
-    </div>
-  </div>
-
-  <!-- Modal: PIN-Tresor Entsperren -->
-  <div id="pinUnlockModal" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="bg-slate-900 border border-white/10 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl text-center">
-      <div class="w-12 h-12 rounded-2xl bg-emerald-500/15 text-emerald-400 mx-auto flex items-center justify-center">
-        <i data-lucide="lock" class="w-6 h-6"></i>
-      </div>
-      <div class="space-y-1">
-        <h3 class="font-bold text-base text-white">SellMate AI entsperren</h3>
-        <p class="text-xs text-slate-400">Gib deine kurze PIN ein, um deine hinterlegten API-Keys freizuschalten.</p>
-      </div>
-      <input
-        type="password"
-        id="pinUnlockInput"
-        placeholder="PIN..."
-        class="w-full text-center tracking-widest text-base font-bold rounded-2xl bg-slate-950 border border-slate-800 px-4 py-3 text-white focus:border-emerald-500 focus:outline-none"
-      />
-      <p id="pinUnlockError" class="hidden text-xs text-rose-400"></p>
-      <div class="flex gap-2">
-        <button type="button" id="btnCancelPinUnlock" class="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300">
-          Einstellungen
-        </button>
-        <button type="button" id="btnSubmitPinUnlock" class="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-xs font-extrabold text-slate-950">
-          Entsperren
-        </button>
-      </div>
     </div>
   </div>
 
@@ -1427,6 +1407,6 @@
     <span id="toastText">Kopiert!</span>
   </div>
 
-  <script src="app.js?v=29"></script>
+  <script src="app.js?v=30"></script>
 </body>
 </html>

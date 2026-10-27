@@ -169,7 +169,44 @@ const adminAuthError = document.getElementById('adminAuthError');
 const btnCancelAdminAuth = document.getElementById('btnCancelAdminAuth');
 const btnSubmitAdminAuth = document.getElementById('btnSubmitAdminAuth');
 
-// Einladungscode & Friends-Beta DOM-Elemente
+// Öffentliches Invite-Modal für Nutzer
+const inviteUserModal = document.getElementById('inviteUserModal');
+const btnCloseInviteUserModal = document.getElementById('btnCloseInviteUserModal');
+const userInviteCodeInput = document.getElementById('userInviteCodeInput');
+const btnUserActivateInviteCode = document.getElementById('btnUserActivateInviteCode');
+const userInviteCreditsBadge = document.getElementById('userInviteCreditsBadge');
+const userInviteProgressBar = document.getElementById('userInviteProgressBar');
+const userInviteLabelHint = document.getElementById('userInviteLabelHint');
+const userInviteRemainingDetail = document.getElementById('userInviteRemainingDetail');
+const userInviteStatusTitle = document.getElementById('userInviteStatusTitle');
+const userInviteDot = document.getElementById('userInviteDot');
+const btnUserShareInviteLink = document.getElementById('btnUserShareInviteLink');
+const btnUserRemoveInviteCode = document.getElementById('btnUserRemoveInviteCode');
+const userInviteFeedback = document.getElementById('userInviteFeedback');
+
+// Owner-Cockpit Elemente (Tabs & Supabase-Verwaltung)
+const adminTabCodes = document.getElementById('adminTabCodes');
+const adminTabAiPrompts = document.getElementById('adminTabAiPrompts');
+const adminTabSystemBackup = document.getElementById('adminTabSystemBackup');
+
+const adminNewCodeInput = document.getElementById('adminNewCodeInput');
+const adminNewLabelInput = document.getElementById('adminNewLabelInput');
+const adminNewCreditsInput = document.getElementById('adminNewCreditsInput');
+const btnAdminCreateCode = document.getElementById('btnAdminCreateCode');
+const btnAdminActivateOwnerCode = document.getElementById('btnAdminActivateOwnerCode');
+const btnAdminRefreshCodes = document.getElementById('btnAdminRefreshCodes');
+const adminCodesListContainer = document.getElementById('adminCodesListContainer');
+
+const adminNeuralwattModelSelect = document.getElementById('adminNeuralwattModelSelect');
+const adminNeuralwattApiKeyInput = document.getElementById('adminNeuralwattApiKeyInput');
+const btnAdminSaveAiKey = document.getElementById('btnAdminSaveAiKey');
+const adminAiKeyHint = document.getElementById('adminAiKeyHint');
+
+const badgeServerAiStatus = document.getElementById('badgeServerAiStatus');
+const badgeServerSupabaseStatus = document.getElementById('badgeServerSupabaseStatus');
+const badgeServerTavilyStatus = document.getElementById('badgeServerTavilyStatus');
+
+// Einladungscode Fallback-Elemente
 const inviteCodeInput = document.getElementById('inviteCodeInput');
 const btnActivateInviteCode = document.getElementById('btnActivateInviteCode');
 const btnClearInviteCode = document.getElementById('btnClearInviteCode');
@@ -178,7 +215,7 @@ const inviteShareBox = document.getElementById('inviteShareBox');
 const inviteRemainingHint = document.getElementById('inviteRemainingHint');
 const btnCopyInviteShareLink = document.getElementById('btnCopyInviteShareLink');
 
-// Optionaler verschlüsselter Tresor-String (AES-256-GCM). Wenn befüllt, fragt das Handy beim Start nur nach der kurzen PIN!
+// Optionaler verschlüsselter Tresor-String (AES-256-GCM)
 const DEFAULT_ENCRYPTED_VAULT = '';
 
 const PROVIDERS = {
@@ -382,7 +419,9 @@ function clearInviteStatus() {
 const FALLBACK_VERCEL_PROXY_URL = 'https://sellmate-ai.vercel.app/api/proxy-ai';
 
 async function callProxyApi(bodyObj, signal = undefined) {
+  const adminPassword = sessionStorage.getItem('sellmate_admin_pw') || undefined;
   const payloadWithPat = {
+    adminPassword,
     ...bodyObj,
     clientGithubPat: getGithubPat() || undefined
   };
@@ -768,6 +807,14 @@ function loadSettings() {
   renderInviteCodeUI();
   updateApiKeyIndicator();
 
+  // Admin-Panel Sichtbarkeit initial prüfen
+  if (isAdminUnlocked()) {
+    if (btnAdminPanel) btnAdminPanel.classList.remove('hidden');
+  } else {
+    if (btnAdminPanel) btnAdminPanel.classList.add('hidden');
+  }
+  checkAdminHashTrigger();
+
   // Bei vorhandenem Einladungscode im Hintergrund Status/Credits prüfen
   if (getInviteCode()) {
     verifyInviteCodeWithServer(getInviteCode(), false).catch(() => {});
@@ -776,44 +823,24 @@ function loadSettings() {
 
 function updateApiKeyIndicator() {
   const inviteCode = getInviteCode();
-  const activeProv = getActiveProvider();
-  const hasKey = Boolean(getProviderApiKey(activeProv));
-  const hasTavily = Boolean(getTavilyApiKey());
-  const meta = PROVIDERS[activeProv] || PROVIDERS.neuralwatt;
+  const remaining = localStorage.getItem('sellmate_invite_remaining');
   const btnTavilyQuickStatus = document.getElementById('btnTavilyQuickStatus');
 
-  if (inviteCode && !hasKey) {
-    const remaining = localStorage.getItem('sellmate_invite_remaining');
+  if (inviteCode) {
     if (activeProviderHeaderLabel) {
-      activeProviderHeaderLabel.textContent = remaining ? `🎟️ ${remaining} Credits` : '🎟️ Invite aktiv';
+      activeProviderHeaderLabel.textContent = remaining ? `🎟️ ${remaining} Credits` : `🎟️ ${inviteCode}`;
     }
-    apiKeyStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
-    if (btnTavilyQuickStatus) {
-      btnTavilyQuickStatus.textContent = '🟢 Cloud-Websuche aktiv';
-      btnTavilyQuickStatus.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition';
-    }
-    return;
-  }
-
-  if (activeProviderHeaderLabel) {
-    activeProviderHeaderLabel.textContent = hasKey
-      ? `${meta.name}${hasTavily ? ' + Tavily' : ''}`
-      : 'Key fehlt (Admin)';
-  }
-  if (hasKey) {
-    apiKeyStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+    if (apiKeyStatusDot) apiKeyStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
   } else {
-    apiKeyStatusDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+    if (activeProviderHeaderLabel) {
+      activeProviderHeaderLabel.textContent = '🎟️ Code eingeben';
+    }
+    if (apiKeyStatusDot) apiKeyStatusDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
   }
 
   if (btnTavilyQuickStatus) {
-    if (hasTavily) {
-      btnTavilyQuickStatus.textContent = '🟢 Tavily-Key aktiv';
-      btnTavilyQuickStatus.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition';
-    } else {
-      btnTavilyQuickStatus.textContent = '🟠 Tavily-Key fehlt (Hier eintragen)';
-      btnTavilyQuickStatus.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 animate-pulse transition';
-    }
+    btnTavilyQuickStatus.textContent = '🟢 Web-Recherche aktiv';
+    btnTavilyQuickStatus.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 transition';
   }
 }
 
@@ -857,64 +884,153 @@ if (btnCopyInviteShareLink) {
   });
 }
 
-const btnTavilyQuickStatusEl = document.getElementById('btnTavilyQuickStatus');
-if (btnTavilyQuickStatusEl) {
-  btnTavilyQuickStatusEl.addEventListener('click', () => {
-    openAdminModal('providers');
-    setTimeout(() => {
-      if (tavilyApiKeyInput) tavilyApiKeyInput.focus();
-    }, 150);
+// ============================================================================
+// ÖFFENTLICHES INVITE-CODE & GUTHABEN MODAL (FÜR REGULÄRE NUTZER)
+// ============================================================================
+
+function openInviteUserModal() {
+  if (!inviteUserModal) return;
+  const code = getInviteCode();
+  const remaining = Number(localStorage.getItem('sellmate_invite_remaining') ?? 50);
+  const total = Number(localStorage.getItem('sellmate_invite_total') ?? 50);
+  const label = localStorage.getItem('sellmate_invite_label') || 'Freunde-Beta';
+
+  if (userInviteCodeInput) {
+    userInviteCodeInput.value = code || '';
+  }
+  if (userInviteFeedback) {
+    userInviteFeedback.classList.add('hidden');
+    userInviteFeedback.textContent = '';
+  }
+
+  if (code) {
+    if (userInviteStatusTitle) userInviteStatusTitle.textContent = `Code "${code}" aktiv`;
+    if (userInviteDot) userInviteDot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400';
+    if (userInviteCreditsBadge) {
+      userInviteCreditsBadge.textContent = `${remaining} / ${total} Credits`;
+      userInviteCreditsBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+    }
+    const percent = Math.min(100, Math.max(0, Math.round((remaining / total) * 100)));
+    if (userInviteProgressBar) {
+      userInviteProgressBar.style.width = `${percent}%`;
+      userInviteProgressBar.className = percent < 15 ? 'bg-rose-500 h-2.5 rounded-full' : 'bg-emerald-500 h-2.5 rounded-full';
+    }
+    if (userInviteLabelHint) userInviteLabelHint.textContent = label;
+    if (userInviteRemainingDetail) userInviteRemainingDetail.textContent = `${remaining} Analysen verbleibend`;
+    if (btnUserRemoveInviteCode) btnUserRemoveInviteCode.classList.remove('hidden');
+    if (btnUserShareInviteLink) btnUserShareInviteLink.classList.remove('hidden');
+  } else {
+    if (userInviteStatusTitle) userInviteStatusTitle.textContent = 'Kein Code aktiv';
+    if (userInviteDot) userInviteDot.className = 'w-2.5 h-2.5 rounded-full bg-amber-400';
+    if (userInviteCreditsBadge) {
+      userInviteCreditsBadge.textContent = '0 Credits';
+      userInviteCreditsBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-slate-800 text-slate-400 border border-white/10';
+    }
+    if (userInviteProgressBar) userInviteProgressBar.style.width = '0%';
+    if (userInviteLabelHint) userInviteLabelHint.textContent = 'Kostenloser Test-Zugang';
+    if (userInviteRemainingDetail) userInviteRemainingDetail.textContent = 'Gib einen Code ein, um zu starten';
+    if (btnUserRemoveInviteCode) btnUserRemoveInviteCode.classList.add('hidden');
+    if (btnUserShareInviteLink) btnUserShareInviteLink.classList.add('hidden');
+  }
+
+  inviteUserModal.classList.remove('hidden');
+  if (window.lucide) lucide.createIcons();
+}
+
+function closeInviteUserModal() {
+  if (inviteUserModal) inviteUserModal.classList.add('hidden');
+}
+
+if (btnCloseInviteUserModal) {
+  btnCloseInviteUserModal.addEventListener('click', closeInviteUserModal);
+}
+
+if (btnUnlockOrStatus) {
+  btnUnlockOrStatus.addEventListener('click', openInviteUserModal);
+}
+
+if (btnUserActivateInviteCode) {
+  btnUserActivateInviteCode.addEventListener('click', async () => {
+    const code = (userInviteCodeInput?.value || '').trim().toUpperCase();
+    if (!code) {
+      showToast('Bitte einen Einladungscode eingeben');
+      return;
+    }
+    btnUserActivateInviteCode.disabled = true;
+    btnUserActivateInviteCode.textContent = 'Prüfe...';
+    try {
+      const res = await verifyInviteCodeWithServer(code, true);
+      if (res.valid) {
+        openInviteUserModal();
+        updateApiKeyIndicator();
+      } else if (userInviteFeedback) {
+        userInviteFeedback.textContent = res.error || 'Ungültiger Code.';
+        userInviteFeedback.className = 'text-xs text-rose-400 font-semibold';
+        userInviteFeedback.classList.remove('hidden');
+      }
+    } finally {
+      btnUserActivateInviteCode.disabled = false;
+      btnUserActivateInviteCode.textContent = 'Aktivieren';
+    }
   });
 }
 
-function getVaultString() {
-  return (localStorage.getItem('sellmate_encrypted_vault') || DEFAULT_ENCRYPTED_VAULT || '').trim();
-}
-
-function openAdminModal(initialTab = 'providers') {
-  const activeProv = getActiveProvider();
-  syncSettingsModalForProvider(activeProv);
-  if (toggleProviderFallback) {
-    toggleProviderFallback.checked = isFallbackEnabled();
-  }
-  if (tavilyApiKeyInput) {
-    tavilyApiKeyInput.value = getTavilyApiKey();
-  }
-  if (githubPatInput) {
-    githubPatInput.value = getGithubPat();
-  }
-  if (adminPromptPlatformSelect && systemPromptTextarea) {
-    adminPromptPlatformSelect.value = currentPlatform;
-    systemPromptTextarea.value = getSystemPrompt(currentPlatform);
-  }
-  switchAdminTab(initialTab);
-  settingsModal.classList.remove('hidden');
-}
-
-function switchAdminTab(tabName) {
-  const map = {
-    providers: adminTabProviders,
-    sync: adminTabSync,
-    prompts: adminTabPrompts
-  };
-  Object.entries(map).forEach(([k, el]) => {
-    if (!el) return;
-    if (k === tabName) el.classList.remove('hidden');
-    else el.classList.add('hidden');
-  });
-  document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
-    const isAct = btn.dataset.admintab === tabName;
-    btn.className = isAct
-      ? 'admin-tab-btn py-2 px-2 rounded-lg bg-emerald-500 text-slate-950 font-bold transition flex items-center justify-center gap-1.5'
-      : 'admin-tab-btn py-2 px-2 rounded-lg text-slate-300 hover:text-white transition flex items-center justify-center gap-1.5';
+if (btnUserShareInviteLink) {
+  btnUserShareInviteLink.addEventListener('click', async () => {
+    const code = getInviteCode();
+    if (!code) return;
+    const shareUrl = `${window.location.origin}${window.location.pathname}#invite=${encodeURIComponent(code)}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'SellMate AI – Kostenloser Einladungscode',
+          text: `Teste SellMate AI kostenlos mit dem Code ${code}:`,
+          url: shareUrl
+        });
+        return;
+      } catch (_) {}
+    }
+    await navigator.clipboard.writeText(shareUrl);
+    showToast('✓ Einladungslink in Zwischenablage kopiert!');
   });
 }
 
-document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
-  btn.addEventListener('click', () => switchAdminTab(btn.dataset.admintab));
-});
+if (btnUserRemoveInviteCode) {
+  btnUserRemoveInviteCode.addEventListener('click', () => {
+    clearInviteStatus();
+    openInviteUserModal();
+    updateApiKeyIndicator();
+    showToast('Einladungscode abgemeldet.');
+  });
+}
 
-let pendingAdminTargetTab = 'providers';
+// ============================================================================
+// OWNER-COCKPIT (VERSTECKTES ADMIN-PANEL NUR FÜR BETREIBER)
+// ============================================================================
+
+let brandTapCount = 0;
+let brandTapTimer = null;
+const brandLogoTrigger = document.getElementById('brandLogoTrigger');
+if (brandLogoTrigger) {
+  brandLogoTrigger.addEventListener('click', () => {
+    brandTapCount++;
+    clearTimeout(brandTapTimer);
+    brandTapTimer = setTimeout(() => { brandTapCount = 0; }, 1500);
+    if (brandTapCount >= 5) {
+      brandTapCount = 0;
+      requestAdminAccess('codes');
+    }
+  });
+}
+
+function checkAdminHashTrigger() {
+  if (window.location.hash === '#admin') {
+    requestAdminAccess('codes');
+  }
+}
+window.addEventListener('hashchange', checkAdminHashTrigger);
+
+let pendingAdminTargetTab = 'codes';
 
 function isAdminUnlocked() {
   return sessionStorage.getItem('sellmate_admin_unlocked') === 'true';
@@ -922,13 +1038,15 @@ function isAdminUnlocked() {
 
 function lockAdmin() {
   sessionStorage.removeItem('sellmate_admin_unlocked');
+  sessionStorage.removeItem('sellmate_admin_pw');
   if (settingsModal) settingsModal.classList.add('hidden');
   if (adminAuthModal) adminAuthModal.classList.add('hidden');
-  showToast('🔒 Admin-Bereich gesperrt.');
+  if (btnAdminPanel) btnAdminPanel.classList.add('hidden');
+  showToast('🔒 Owner-Cockpit gesperrt.');
 }
 
-function requestAdminAccess(targetTab = 'providers') {
-  pendingAdminTargetTab = targetTab || 'providers';
+function requestAdminAccess(targetTab = 'codes') {
+  pendingAdminTargetTab = targetTab || 'codes';
   if (isAdminUnlocked()) {
     openAdminModal(pendingAdminTargetTab);
   } else {
@@ -978,9 +1096,11 @@ async function verifyAndUnlockAdmin(password) {
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.valid) {
       sessionStorage.setItem('sellmate_admin_unlocked', 'true');
+      sessionStorage.setItem('sellmate_admin_pw', password);
+      if (btnAdminPanel) btnAdminPanel.classList.remove('hidden');
       if (adminAuthModal) adminAuthModal.classList.add('hidden');
-      openAdminModal(pendingAdminTargetTab || 'providers');
-      showToast('🔓 Admin-Bereich entsperrt!');
+      openAdminModal(pendingAdminTargetTab || 'codes');
+      showToast('🔓 Owner-Cockpit freigeschaltet!');
     } else {
       if (adminAuthError) {
         adminAuthError.textContent = data.error || 'Ungültiges Admin-Passwort.';
@@ -1005,19 +1125,247 @@ async function verifyAndUnlockAdmin(password) {
   }
 }
 
-if (btnAdminPanel) {
-  btnAdminPanel.addEventListener('click', () => requestAdminAccess('providers'));
+function openAdminModal(initialTab = 'codes') {
+  switchAdminTab(initialTab);
+  if (settingsModal) settingsModal.classList.remove('hidden');
+  if (window.lucide) lucide.createIcons();
 }
 
-if (btnUnlockOrStatus) {
-  btnUnlockOrStatus.addEventListener('click', () => {
-    if (!getApiKey() && getVaultString() && pinUnlockModal) {
-      pinUnlockModal.classList.remove('hidden');
-      pinUnlockInput.focus();
-    } else {
-      requestAdminAccess('providers');
+function switchAdminTab(tabName) {
+  const map = {
+    codes: adminTabCodes,
+    ai_prompts: adminTabAiPrompts,
+    system_backup: adminTabSystemBackup
+  };
+  Object.entries(map).forEach(([k, el]) => {
+    if (!el) return;
+    if (k === tabName) el.classList.remove('hidden');
+    else el.classList.add('hidden');
+  });
+  document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
+    const isAct = btn.dataset.admintab === tabName;
+    btn.className = isAct
+      ? 'admin-tab-btn py-2 px-2 rounded-xl bg-amber-400 text-slate-950 font-bold transition flex items-center justify-center gap-1.5'
+      : 'admin-tab-btn py-2 px-2 rounded-xl text-slate-300 hover:text-white transition flex items-center justify-center gap-1.5';
+  });
+
+  if (tabName === 'codes') refreshAdminCodesList();
+  if (tabName === 'ai_prompts') loadAdminAiPromptsTab();
+  if (window.lucide) lucide.createIcons();
+}
+
+document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => switchAdminTab(btn.dataset.admintab));
+});
+
+async function refreshAdminCodesList() {
+  if (!adminCodesListContainer) return;
+  adminCodesListContainer.innerHTML = '<div class="text-center py-4 text-slate-400 text-xs"><i data-lucide="loader-2" class="w-4 h-4 animate-spin inline-block mr-1.5"></i> Lade Codes aus Supabase...</div>';
+  if (window.lucide) lucide.createIcons();
+
+  try {
+    const res = await callProxyApi({ action: 'admin_list_codes' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      adminCodesListContainer.innerHTML = `<div class="p-3 rounded-xl bg-rose-500/15 text-rose-300 border border-rose-500/30 text-xs">${escapeHtml(data.error || 'Fehler beim Laden')}</div>`;
+      return;
+    }
+
+    if (data.serverConfig) {
+      if (badgeServerAiStatus) {
+        badgeServerAiStatus.textContent = `${data.serverConfig.provider.toUpperCase()} (${data.serverConfig.model})`;
+      }
+      if (badgeServerSupabaseStatus) {
+        badgeServerSupabaseStatus.textContent = data.serverConfig.hasSupabase ? 'Supabase Verbunden' : 'Supabase fehlt';
+      }
+      if (badgeServerTavilyStatus) {
+        badgeServerTavilyStatus.textContent = data.serverConfig.hasTavily ? 'Tavily Aktiv' : 'Kein Tavily';
+      }
+      if (adminAiKeyHint) {
+        adminAiKeyHint.textContent = `Server-Key: ${data.serverConfig.aiKeyPreview} (${data.serverConfig.provider})`;
+      }
+    }
+
+    const codes = data.codes || [];
+    if (codes.length === 0) {
+      adminCodesListContainer.innerHTML = '<div class="text-center py-4 text-slate-500 text-xs">Noch keine Codes in Supabase vorhanden.</div>';
+      return;
+    }
+
+    adminCodesListContainer.innerHTML = codes.map((c) => {
+      const remaining = Math.max(0, (c.credits_total || 50) - (c.credits_used || 0));
+      return `
+        <div class="flex items-center justify-between p-3 rounded-xl bg-slate-900 border border-white/5 gap-2">
+          <div class="space-y-0.5">
+            <div class="flex items-center gap-2">
+              <span class="font-mono font-bold text-white text-xs">${escapeHtml(c.code)}</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${c.is_active ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-500'}">
+                ${c.is_active ? 'Aktiv' : 'Inaktiv'}
+              </span>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              ${escapeHtml(c.label || 'Standard')} • <span class="text-emerald-400 font-semibold">${remaining} von ${c.credits_total} frei</span> (${c.credits_used || 0} genutzt)
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              class="btn-admin-copy-link p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+              data-code="${escapeHtml(c.code)}"
+              title="Einladungslink kopieren"
+            >
+              <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
+            </button>
+            <button
+              type="button"
+              class="btn-admin-delete-code p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition"
+              data-code="${escapeHtml(c.code)}"
+              title="Code löschen"
+            >
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    if (window.lucide) lucide.createIcons();
+
+    adminCodesListContainer.querySelectorAll('.btn-admin-copy-link').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const target = btn.dataset.code;
+        const link = `${window.location.origin}${window.location.pathname}#invite=${encodeURIComponent(target)}`;
+        await navigator.clipboard.writeText(link);
+        showToast(`✓ Link für ${target} kopiert!`);
+      });
+    });
+
+    adminCodesListContainer.querySelectorAll('.btn-admin-delete-code').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const target = btn.dataset.code;
+        if (!confirm(`Möchtest du den Code "${target}" wirklich aus Supabase löschen?`)) return;
+        btn.disabled = true;
+        try {
+          const dRes = await callProxyApi({ action: 'admin_delete_code', payload: { code: target } });
+          const dData = await dRes.json().catch(() => ({}));
+          if (dRes.ok && dData.ok) {
+            showToast(`Code "${target}" gelöscht.`);
+            refreshAdminCodesList();
+          } else {
+            showToast(`Fehler: ${dData.error || 'Konnte nicht gelöscht werden'}`);
+          }
+        } catch (err) {
+          showToast(`Fehler: ${err.message}`);
+        }
+      });
+    });
+
+  } catch (err) {
+    adminCodesListContainer.innerHTML = `<div class="p-3 rounded-xl bg-rose-500/15 text-rose-300 border border-rose-500/30 text-xs">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+if (btnAdminRefreshCodes) {
+  btnAdminRefreshCodes.addEventListener('click', refreshAdminCodesList);
+}
+
+if (btnAdminCreateCode) {
+  btnAdminCreateCode.addEventListener('click', async () => {
+    const code = (adminNewCodeInput?.value || '').trim().toUpperCase();
+    const label = (adminNewLabelInput?.value || '').trim() || 'Freunde-Beta';
+    const creditsTotal = Math.max(1, Number(adminNewCreditsInput?.value || 50));
+    if (!code) {
+      showToast('Bitte einen Code eingeben (z.B. LISA-2026)');
+      return;
+    }
+    btnAdminCreateCode.disabled = true;
+    btnAdminCreateCode.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i><span>Speichere...</span>';
+    if (window.lucide) lucide.createIcons();
+    try {
+      const res = await callProxyApi({
+        action: 'admin_upsert_code',
+        payload: { code, label, creditsTotal, creditsUsed: 0, isActive: true }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        showToast(`✓ Code "${code}" in Supabase gespeichert!`);
+        if (adminNewCodeInput) adminNewCodeInput.value = '';
+        if (adminNewLabelInput) adminNewLabelInput.value = '';
+        refreshAdminCodesList();
+      } else {
+        showToast(`Fehler: ${data.error || 'Fehler beim Speichern'}`);
+      }
+    } catch (err) {
+      showToast(`Fehler: ${err.message}`);
+    } finally {
+      btnAdminCreateCode.disabled = false;
+      btnAdminCreateCode.innerHTML = '<i data-lucide="save" class="w-4 h-4"></i><span>In Supabase speichern / aufladen</span>';
+      if (window.lucide) lucide.createIcons();
     }
   });
+}
+
+if (btnAdminActivateOwnerCode) {
+  btnAdminActivateOwnerCode.addEventListener('click', async () => {
+    btnAdminActivateOwnerCode.disabled = true;
+    try {
+      await callProxyApi({
+        action: 'admin_upsert_code',
+        payload: { code: 'OWNER-BARON', label: 'Owner Baron', creditsTotal: 9999, creditsUsed: 0, isActive: true }
+      });
+      saveInviteStatus({
+        code: 'OWNER-BARON',
+        remainingCredits: 9999,
+        totalCredits: 9999,
+        label: 'Owner Baron',
+        hasServerTavily: true
+      });
+      updateApiKeyIndicator();
+      showToast('👑 Owner-Code (9999 Credits) aktiviert!');
+      refreshAdminCodesList();
+    } catch (err) {
+      showToast(`Fehler beim Aktivieren: ${err.message}`);
+    } finally {
+      btnAdminActivateOwnerCode.disabled = false;
+    }
+  });
+}
+
+function loadAdminAiPromptsTab() {
+  const currentModelOverride = localStorage.getItem('sellmate_owner_model_override') || 'qwen-3.8-27b';
+  if (adminNeuralwattModelSelect) {
+    adminNeuralwattModelSelect.value = currentModelOverride;
+  }
+  if (adminNeuralwattApiKeyInput) {
+    adminNeuralwattApiKeyInput.value = getProviderApiKey('neuralwatt') || '';
+  }
+  if (adminPromptPlatformSelect && systemPromptTextarea) {
+    systemPromptTextarea.value = getSystemPrompt(adminPromptPlatformSelect.value || currentPlatform);
+  }
+}
+
+if (adminNeuralwattModelSelect) {
+  adminNeuralwattModelSelect.addEventListener('change', () => {
+    localStorage.setItem('sellmate_owner_model_override', adminNeuralwattModelSelect.value);
+    showToast(`Neuralwatt-Modell gesetzt auf: ${adminNeuralwattModelSelect.value}`);
+  });
+}
+
+if (btnAdminSaveAiKey) {
+  btnAdminSaveAiKey.addEventListener('click', () => {
+    const val = (adminNeuralwattApiKeyInput?.value || '').trim();
+    if (val) {
+      localStorage.setItem('sellmate_key_neuralwatt', val);
+      showToast('✓ Neuralwatt API-Key gespeichert!');
+    } else {
+      localStorage.removeItem('sellmate_key_neuralwatt');
+      showToast('Neuralwatt Key entfernt (nutzt Server-Key).');
+    }
+  });
+}
+
+if (btnAdminPanel) {
+  btnAdminPanel.addEventListener('click', () => requestAdminAccess('codes'));
 }
 
 if (btnLockAdmin) {
@@ -1244,14 +1592,7 @@ function checkAndImportUrlHashSync() {
     }
   } else if (hash === '#admin') {
     history.replaceState(null, '', window.location.pathname + window.location.search);
-    setTimeout(() => requestAdminAccess('providers'), 200);
-  } else {
-    // Falls kein Key auf dem Gerät ist, aber ein verschlüsselter PIN-Tresor existiert -> PIN-Abfrage öffnen
-    setTimeout(() => {
-      if (!hasAiAccess() && getVaultString() && pinUnlockModal) {
-        pinUnlockModal.classList.remove('hidden');
-      }
-    }, 300);
+    setTimeout(() => requestAdminAccess('codes'), 200);
   }
 }
 
@@ -1958,10 +2299,14 @@ async function callOpenAICompatibleVision({ provider, baseUrl, apiKey, model, sy
 }
 
 async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = [], maxTokens = 1400, timeoutMs = 24000, allowGeminiSearch = false, deductCredit = true, onStatusUpdate = null }) {
-  // Wenn ein Einladungscode aktiv ist und kein eigener API-Key hinterlegt wurde -> über Vercel Cloud-Proxy leiten
-  if (isInviteModeActive() && !getApiKey()) {
+  // Wenn ein Einladungscode aktiv ist oder kein eigener API-Key hinterlegt wurde -> über Vercel Cloud-Proxy leiten
+  if (isInviteModeActive() || !getApiKey()) {
+    if (!isInviteModeActive() && !getApiKey()) {
+      openInviteUserModal();
+      throw new Error('Bitte gib zuerst einen Einladungscode ein, um Artikel zu analysieren.');
+    }
     if (onStatusUpdate) {
-      onStatusUpdate('Sende Anfrage an sicheren Cloud-Proxy...');
+      onStatusUpdate('Sende Anfrage an sicheren Cloud-Proxy (Neuralwatt)...');
     }
     addDiagLog(`Cloud-Proxy Vision-Request (Code: "${getInviteCode()}", Bilder: ${images.length}, Credit-Abzug: ${deductCredit})...`);
 
@@ -1978,6 +2323,8 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = 
             userPrompt,
             images,
             maxTokens,
+            modelOverride: localStorage.getItem('sellmate_owner_model_override') || 'qwen-3.8-27b',
+            clientApiKey: getProviderApiKey('neuralwatt') || undefined,
             allowGeminiSearch
           }
         },
