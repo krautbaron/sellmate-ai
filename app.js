@@ -594,6 +594,7 @@ function getSystemPrompt(platform) {
 }
 
 function populateProviderModelsDropdown(provider, selectedModelId) {
+  if (!modelSelect) return;
   const meta = PROVIDERS[provider] || PROVIDERS.neuralwatt;
   const cachedModelsRaw = localStorage.getItem(`sellmate_cached_models_${provider}`);
   let modelOptions = [...meta.defaultModels];
