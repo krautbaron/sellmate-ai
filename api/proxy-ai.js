@@ -561,7 +561,7 @@ export default async function handler(req, res) {
               { role: 'user', content: userContent }
             ],
             temperature: 0.2,
-            max_tokens: Math.min(2500, Number(maxTokens) || 1600)
+            max_tokens: Math.max(1200, Math.min(3500, Number(maxTokens) || 2000))
           }),
           signal: AbortSignal.timeout(28000)
         });
@@ -579,7 +579,11 @@ export default async function handler(req, res) {
           return res.status(oaiRes.status).json({ error: errMsg, ticket });
         }
 
-        rawText = (oaiData?.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        const rawChoice = oaiData?.choices?.[0]?.message?.content || '';
+        rawText = rawChoice.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        if (!rawText && rawChoice.trim()) {
+          rawText = rawChoice.replace(/<\/?think>/gi, '').trim();
+        }
         usedModel = `${provider === 'neuralwatt' ? 'Neuralwatt' : 'Cloud'} (${model})`;
       }
 

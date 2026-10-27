@@ -2707,7 +2707,7 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
       systemPrompt: 'Du bist ein rein optischer Bild-Analyst. Du rätst NIEMALS Marken (kein McDonald\'s/Happy Meal!) oder Eigennamen, sondern extrahierst knappe, präzise Suchbegriffe als JSON.',
       userPrompt: queryGenPrompt,
       images,
-      maxTokens: 200,
+      maxTokens: 1200,
       timeoutMs: 25000,
       allowGeminiSearch: false,
       deductCredit: false,
@@ -2991,16 +2991,41 @@ Antworte ausschließlich als valides JSON-Objekt (ohne umschließenden Markdown-
 function extractJsonFromText(rawText) {
   if (!rawText) return null;
   // Entferne Reasoning/Thinking-Tags (<think>...</think>) und Markdown Code-Fences
-  const cleaned = String(rawText)
+  let cleaned = String(rawText)
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/```(?:json)?([\s\S]*?)```/gi, '$1')
     .trim();
   const match = cleaned.match(/\{[\s\S]*\}/);
   if (!match) return null;
+
+  const jsonCandidate = match[0];
   try {
-    return JSON.parse(match[0]);
-  } catch (e) {
-    return null;
+    return JSON.parse(jsonCandidate);
+  } catch (e1) {
+    // 1. Bereinige typische LLM-Syntaxfehler wie trailing commas vor } oder ]
+    try {
+      const fixedComma = jsonCandidate.replace(/,\s*([\}\]])/g, '$1');
+      return JSON.parse(fixedComma);
+    } catch (e2) {
+      // 2. Regex-Fallback für Schlüsselattribute (title, description, priceAndRarityAnalysis)
+      const res = {};
+      const titleMatch = jsonCandidate.match(/"title"\s*:\s*"((?:\\.|[^"\\])*)"/);
+      if (titleMatch) {
+        try { res.title = JSON.parse(`"${titleMatch[1]}"`); } catch (_) { res.title = titleMatch[1]; }
+      }
+      const descMatch = jsonCandidate.match(/"description"\s*:\s*"((?:\\.|[^"\\])*)"/);
+      if (descMatch) {
+        try { res.description = JSON.parse(`"${descMatch[1]}"`); } catch (_) { res.description = descMatch[1]; }
+      }
+      const priceMatch = jsonCandidate.match(/"priceAndRarityAnalysis"\s*:\s*"((?:\\.|[^"\\])*)"/);
+      if (priceMatch) {
+        try { res.priceAndRarityAnalysis = JSON.parse(`"${priceMatch[1]}"`); } catch (_) { res.priceAndRarityAnalysis = priceMatch[1]; }
+      }
+      if (res.title || res.description) {
+        return res;
+      }
+      return null;
+    }
   }
 }
 
