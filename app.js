@@ -3576,6 +3576,7 @@ let batchStagingImages = [];
 let targetBatchItemIdForPhotoAdd = null;
 let editingLinkForItemId = null;
 let expandedTextForItemId = null;
+let moreMenuForItemId = null;
 const selectedBatchItemIds = new Set();
 
 const batchStagingBox = document.getElementById('batchStagingBox');
@@ -4676,278 +4677,156 @@ function renderBatchDashboard() {
       const isListed = Boolean(item.isListed);
       const isSold = Boolean(item.isSold);
       const isBundled = Boolean(item.isBundled);
-      const listingUrl = (item.listingUrl || '').trim();
-      const isEditingLink = editingLinkForItemId === item.id;
-      const isTextExpanded = expandedTextForItemId === item.id;
       const isSelectedForBundle = selectedBatchItemIds.has(item.id);
+      const isMoreOpen = moreMenuForItemId === item.id;
 
-      const selectBtnHtml = item.status === 'done'
-        ? `<button type="button" data-action="toggle-select" data-id="${item.id}" class="px-2 py-0.5 rounded-full text-[10px] font-bold ${
-            isSelectedForBundle
-              ? 'bg-emerald-500 text-slate-950 ring-2 ring-emerald-300'
-              : 'bg-slate-800 text-slate-400 hover:text-white border border-white/10'
-          } transition">${isSelectedForBundle ? '☑️ Im Set' : '☐ Set'}</button>`
-        : '';
+      // Status Badge (nur das Wichtigste, maximal 1 dezenter Badge)
+      let statusBadgeHtml = '';
+      if (isSold) {
+        statusBadgeHtml = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">💰 Verkauft${item.soldPrice ? ` (${item.soldPrice} €)` : ''}</span>`;
+      } else if (isListed) {
+        statusBadgeHtml = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">📢 Eingestellt</span>`;
+      } else if (d.isRarity) {
+        statusBadgeHtml = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">💎 Rarität</span>`;
+      } else if (d.sellabilityScore) {
+        statusBadgeHtml = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">⭐ ${d.sellabilityScore}/10</span>`;
+      }
 
-      const bundledBadgeHtml = isBundled
-        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">📦 Im Set gebündelt</span>`
-        : '';
-
-      const soldBadgeHtml = isSold
-        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/25 text-amber-300 border border-amber-500/40">💰 Verkauft${item.soldPrice ? ` (${item.soldPrice} €)` : ''}</span>`
-        : '';
-
-      const listedBadgeHtml = isListed && !isSold
-        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40">📢 Eingestellt</span>`
-        : '';
-
-      const listingLinkDisplayHtml =
-        isListed && listingUrl && !isEditingLink
-          ? `
-          <div class="bg-sky-950/30 border border-sky-500/30 rounded-xl px-3 py-2 flex items-center justify-between gap-2 text-xs">
-            <a href="${escapeHtml(listingUrl)}" target="_blank" rel="noopener" class="text-sky-300 hover:text-sky-200 font-semibold truncate flex items-center gap-1.5 underline">
-              <span>🔗 Zum Inserat öffnen ↗</span>
-              <span class="text-[10px] text-slate-400 font-normal truncate">(${escapeHtml(listingUrl)})</span>
-            </a>
-            <button type="button" data-action="edit-link" data-id="${item.id}" class="text-[11px] text-slate-400 hover:text-white shrink-0 px-1.5 py-0.5 rounded bg-slate-800">
-              Status / Link
-            </button>
-          </div>`
-          : '';
-
-      const linkEditorHtml = isEditingLink
-        ? `
-          <div class="bg-slate-950/90 border border-sky-500/40 rounded-2xl p-3.5 space-y-2.5">
-            <div class="flex items-center justify-between">
-              <span class="text-[11px] font-bold text-sky-300">📢 Inserats-Status, Verkaufslink & Verkauft-Markierung</span>
-              <button type="button" data-action="close-link-editor" data-id="${item.id}" class="text-[11px] text-slate-400 hover:text-white">✕</button>
-            </div>
-            <div class="flex flex-col sm:flex-row gap-2">
-              <input
-                type="url"
-                id="listingUrlInput_${item.id}"
-                value="${escapeHtml(listingUrl)}"
-                placeholder="https://www.kleinanzeigen.de/s-anzeige/..."
-                class="flex-1 rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-sky-500 focus:outline-none"
+      return `
+        <div class="glass-card ${isSold ? '!border-amber-500/30 opacity-80' : isListed ? '!border-sky-500/30' : ''} rounded-2xl p-3.5 sm:p-4 space-y-3 transition shadow-md hover:border-white/15">
+          <!-- Oberer Bereich: Thumbnail + Titel + Preis -->
+          <div class="flex items-start gap-3">
+            <!-- Foto mit Overlay-Checkbox für Sets -->
+            <div class="relative w-16 h-16 sm:w-20 sm:h-20 shrink-0">
+              <img
+                src="${imgs[0]?.dataUrl || ''}"
+                data-lightbox-src="${imgs[0]?.dataUrl || ''}"
+                class="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover border border-white/10 cursor-zoom-in hover:opacity-90 transition shadow-sm"
+                title="Foto antippen zum Vergrößern"
               />
-              <div class="flex gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  data-action="paste-link"
-                  data-id="${item.id}"
-                  class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 font-semibold text-xs transition"
-                  title="Link aus der Zwischenablage einfügen & speichern"
-                >
-                  📋 Einfügen
-                </button>
-                <button
-                  type="button"
-                  data-action="save-link"
-                  data-id="${item.id}"
-                  class="px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-extrabold text-xs transition"
-                >
-                  Speichern
-                </button>
-              </div>
-            </div>
-            <div class="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-white/5 text-[11px]">
-              <div class="flex items-center gap-1.5">
-                <span class="text-slate-400">Verkaufspreis:</span>
-                <input
-                  type="number"
-                  id="soldPriceInput_${item.id}"
-                  value="${Number(item.soldPrice || d.recommendedPrice || 0)}"
-                  class="w-16 rounded-lg bg-slate-900 border border-amber-500/40 px-2 py-1 text-xs font-bold text-amber-300 focus:outline-none"
-                  title="Tatsächlich erzielter Verkaufspreis in €"
-                />
-                <span class="text-slate-400">€</span>
-                ${
-                  !isSold
-                    ? `<button type="button" data-action="mark-sold" data-id="${item.id}" class="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold transition">💰 Verkauft</button>`
-                    : `<button type="button" data-action="mark-sold" data-id="${item.id}" class="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-bold transition">Preis ändern</button>
-                       <button type="button" data-action="unmark-sold" data-id="${item.id}" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition">Aufheben</button>`
-                }
-              </div>
+              ${imgs.length > 1 ? `<span class="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/75 backdrop-blur-sm text-[9px] font-bold text-white border border-white/10">📷 ${imgs.length}</span>` : ''}
               ${
-                isListed
-                  ? `<button type="button" data-action="unmark-listed" data-id="${item.id}" class="text-rose-400 hover:text-rose-300 underline">Zurück auf „Offen“ setzen</button>`
+                item.status === 'done'
+                  ? `<button type="button" data-action="toggle-select" data-id="${item.id}" class="absolute top-1 left-1 w-5 h-5 rounded-lg flex items-center justify-center text-[10px] font-bold ${
+                      isSelectedForBundle ? 'bg-emerald-500 text-slate-950 shadow-md ring-2 ring-emerald-300' : 'bg-black/60 text-white/70 hover:text-white border border-white/20'
+                    } transition" title="Für Set/Konvolut auswählen">
+                      ${isSelectedForBundle ? '✓' : ''}
+                    </button>`
                   : ''
               }
             </div>
-          </div>`
-        : '';
 
-      const inlineTextDrawerHtml = isTextExpanded
-        ? `
-          <div class="bg-slate-950/90 border border-emerald-500/30 rounded-2xl p-3.5 space-y-2.5">
-            <div class="flex items-center justify-between">
-              <span class="text-[11px] font-bold text-emerald-300">📄 Schnell-Vorschau & Direkt-Bearbeitung</span>
-              <div class="flex items-center gap-2">
-                <button type="button" data-action="open-detail-full" data-id="${item.id}" class="text-[11px] text-sky-300 hover:text-sky-200 underline">
-                  Im Voll-Editor öffnen ↗
-                </button>
-                <button type="button" data-action="toggle-text" data-id="${item.id}" class="text-xs text-slate-400 hover:text-white px-1">✕</button>
+            <!-- Titel & Details (Klick öffnet Voll-Editor) -->
+            <div class="flex-1 min-w-0 space-y-1 cursor-pointer" data-action="open-detail" data-id="${item.id}" title="Tippen zum Ansehen & Bearbeiten">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                ${statusBadgeHtml}
+                ${isBundled ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300">📦 Im Set</span>' : ''}
               </div>
+              <h3 class="font-extrabold text-xs sm:text-sm text-white leading-snug line-clamp-2 hover:text-emerald-300 transition">
+                ${escapeHtml(d.title || d.itemName)}
+              </h3>
+              <p class="text-[11px] text-slate-400 line-clamp-1 leading-tight">
+                ${escapeHtml(d.sellabilityReason || d.category || 'Bereit zum Inserieren')}
+              </p>
             </div>
-            <div class="flex flex-col sm:flex-row gap-2">
-              <div class="flex-1">
-                <div class="flex items-center justify-between mb-1">
-                  <label class="text-[10px] font-bold text-slate-400 uppercase">Anzeigen-Titel</label>
-                  <button type="button" data-action="copy-inline-title" data-id="${item.id}" class="text-[10px] font-bold text-emerald-400 hover:text-emerald-300">📋 Titel kopieren</button>
-                </div>
-                <input
-                  type="text"
-                  id="inlineTitle_${item.id}"
-                  value="${escapeHtml(d.title || d.itemName || '')}"
-                  class="w-full rounded-xl bg-slate-900 border border-white/10 px-3 py-1.5 text-xs font-semibold text-white focus:border-emerald-500 focus:outline-none"
-                />
-              </div>
-              <div class="sm:w-36">
-                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Preis (€)</label>
-                <div class="flex items-center gap-1">
-                  <input
-                    type="number"
-                    id="inlinePrice_${item.id}"
-                    value="${Number(d.recommendedPrice || 0)}"
-                    class="w-full rounded-xl bg-slate-900 border border-white/10 px-3 py-1.5 text-xs font-bold text-emerald-400 focus:border-emerald-500 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    data-action="discount-10"
-                    data-id="${item.id}"
-                    class="px-2 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-[10px] font-bold shrink-0 transition"
-                    title="1-Klick Preis um 10% senken (-10%)"
-                  >
-                    📉 -10%
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <label class="text-[10px] font-bold text-slate-400 uppercase">Beschreibung (Kleinanzeigen-fertig)</label>
-                <button type="button" data-action="copy-inline-desc" data-id="${item.id}" class="text-[10px] font-bold text-emerald-400 hover:text-emerald-300">📋 Text kopieren</button>
-              </div>
-              <textarea
-                id="inlineDesc_${item.id}"
-                rows="5"
-                class="w-full rounded-xl bg-slate-900 border border-white/10 p-2.5 text-xs text-slate-200 leading-relaxed focus:border-emerald-500 focus:outline-none"
-              >${escapeHtml(d.description || '')}</textarea>
-            </div>
-            <div class="flex justify-end gap-2">
-              <button
-                type="button"
-                data-action="save-inline-text"
-                data-id="${item.id}"
-                class="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition"
-              >
-                ✓ Änderungen speichern
-              </button>
-            </div>
-          </div>`
-        : '';
 
-      return `
-        <div class="glass-card ${isSold ? '!border-amber-500/40' : isListed ? '!border-sky-500/40' : ''} rounded-3xl p-4 space-y-3.5 transition shadow-lg">
-          <div class="flex items-start gap-3.5">
-            <div class="relative w-20 h-20 shrink-0">
-              <img src="${imgs[0]?.dataUrl || ''}" data-lightbox-src="${imgs[0]?.dataUrl || ''}" class="w-20 h-20 rounded-2xl object-cover border border-white/10 cursor-zoom-in hover:opacity-90 transition" title="Antippen zum Vergrößern" />
-              ${photoCountBadge}
-            </div>
-            <div class="flex-1 min-w-0 space-y-1">
-              <div class="flex flex-wrap items-center gap-1.5">
-                ${selectBtnHtml}
-                ${bundledBadgeHtml}
-                ${soldBadgeHtml}
-                ${listedBadgeHtml}
-                ${badgeHtml}
-                ${rarityHtml}
-                ${confidenceHtml}
-              </div>
-              <h3 class="font-extrabold text-sm sm:text-base text-white leading-snug">${escapeHtml(d.itemName)}</h3>
-              <p class="text-xs text-slate-400 leading-relaxed line-clamp-2">${escapeHtml(d.sellabilityReason)}</p>
-              ${extraThumbsHtml}
-            </div>
+            <!-- Preis -->
             <div class="text-right shrink-0 pl-1">
-              <div class="text-lg sm:text-xl font-extrabold ${isSold ? 'text-amber-300' : 'text-emerald-400'} tracking-tight">${d.recommendedPrice} €</div>
-              <div class="text-[10px] text-slate-400">${d.minPrice}–${d.maxPrice} €</div>
-              <div class="text-[10px] font-semibold ${d.priceFromWebSearch ? 'text-emerald-400/90' : 'text-slate-500'} mt-0.5">${d.priceFromWebSearch ? '✓ Web-Preis' : 'Schätzung'}</div>
+              <div class="text-base sm:text-lg font-black ${isSold ? 'text-amber-300' : 'text-emerald-400'} tracking-tight">${d.recommendedPrice} €</div>
+              <div class="text-[10px] text-slate-400 font-medium">${d.minPrice}–${d.maxPrice} €</div>
+              ${d.priceFromWebSearch ? '<span class="text-[9px] text-emerald-400/80 font-bold block mt-0.5">✓ Web</span>' : ''}
             </div>
           </div>
 
-          ${listingLinkDisplayHtml}
-          ${linkEditorHtml}
-          ${inlineTextDrawerHtml}
-
-          <!-- Aufgeräumte, daumenfreundliche Aktionsleiste pro Karte -->
-          <div class="pt-2.5 border-t border-white/5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+          <!-- Untere Aktionsleiste: Maximal aufgeräumt (1 Haupt-Button, 1 Details-Button, 1 Menü-Button) -->
+          <div class="pt-2 border-t border-white/5 flex items-center justify-between gap-2">
+            <!-- 1. Haupt-Button: Kopieren & Inserieren -->
             <button
               type="button"
               data-action="launch"
               data-id="${item.id}"
-              class="py-2.5 px-4 rounded-2xl cta-gradient active:scale-[0.98] text-slate-950 font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/15 transition"
+              class="flex-1 py-2 px-3 sm:px-4 rounded-xl cta-gradient active:scale-[0.98] text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 transition truncate"
+              title="Titel, Beschreibung & Preis kopieren und Kleinanzeigen öffnen"
             >
-              <span>📲 Kopieren & Inserieren</span>
+              <i data-lucide="copy" class="w-3.5 h-3.5 shrink-0 stroke-[2.5]"></i>
+              <span class="truncate">Kopieren & Inserieren</span>
             </button>
 
-            <div class="flex items-center justify-between sm:justify-end gap-1.5">
-              <button
-                type="button"
-                data-action="toggle-listed"
-                data-id="${item.id}"
-                class="flex-1 sm:flex-initial py-2 px-3 rounded-xl ${
-                  isSold
-                    ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40'
-                    : isListed
-                    ? 'bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40'
-                    : 'bg-slate-800/90 hover:bg-slate-800 text-slate-200 border border-white/10'
-                } font-bold text-xs transition text-center"
-                title="Als bei Kleinanzeigen eingestellt oder verkauft markieren & Link hinterlegen"
-              >
-                <span>${isSold ? '💰 Verkauft' : isListed ? (listingUrl ? '🔗 Link' : '📢 Eingestellt') : '✅ Eingestellt'}</span>
-              </button>
-              <button
-                type="button"
-                data-action="save-photos"
-                data-id="${item.id}"
-                class="py-2 px-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-slate-200 border border-white/10 font-bold text-xs transition"
-                title="Fotos auf dem Handy speichern oder direkt teilen"
-              >
-                <span>🖼️ Fotos</span>
-              </button>
+            <!-- 2. Details / Bearbeiten Button -->
+            <button
+              type="button"
+              data-action="open-detail"
+              data-id="${item.id}"
+              class="py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-white/10 font-bold text-xs flex items-center gap-1.5 transition active:scale-95 shrink-0"
+              title="Inserat im Voll-Editor ansehen & bearbeiten"
+            >
+              <i data-lucide="edit-3" class="w-3.5 h-3.5 text-slate-400"></i>
+              <span>Details</span>
+            </button>
+
+            <!-- 3. Mehr-Optionen Button (⋮) -->
+            <button
+              type="button"
+              data-action="toggle-more"
+              data-id="${item.id}"
+              class="py-2 px-2.5 rounded-xl ${isMoreOpen ? 'bg-slate-800 text-white' : 'bg-slate-900 text-slate-400 hover:text-white'} border border-white/10 text-xs transition active:scale-95 shrink-0"
+              title="Weitere Optionen (Fotos, Status, Löschen)"
+            >
+              <i data-lucide="more-horizontal" class="w-4 h-4"></i>
+            </button>
+          </div>
+
+          <!-- Ausklappbares Mehr-Menü (nur wenn '⋮' angetippt wird) -->
+          ${
+            isMoreOpen
+              ? `
+            <div class="p-2 rounded-xl bg-slate-950 border border-white/10 flex items-center justify-between gap-1.5 text-xs animate-fadeIn">
               <button
                 type="button"
                 data-action="add-photo"
                 data-id="${item.id}"
-                class="py-2 px-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-emerald-300 border border-white/10 font-bold text-xs transition"
-                title="Weiteres Foto (z.B. Typenschild) dazunehmen"
+                class="flex-1 py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 font-semibold text-[11px] flex items-center justify-center gap-1 transition"
+                title="Weiteres Foto vom Typenschild/Detail hinzufügen"
               >
-                <span>📷 +Typ</span>
+                <i data-lucide="camera" class="w-3.5 h-3.5 text-emerald-400"></i>
+                <span>+Foto</span>
               </button>
+
               <button
                 type="button"
-                data-action="toggle-text"
+                data-action="save-photos"
                 data-id="${item.id}"
-                class="py-2 px-2.5 rounded-xl ${
-                  isTextExpanded
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                    : 'bg-slate-800/90 hover:bg-slate-800 text-slate-200 border border-white/10'
-                } font-bold text-xs transition"
-                title="Anzeigentext & Preis direkt aufklappen und bearbeiten"
+                class="flex-1 py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 font-semibold text-[11px] flex items-center justify-center gap-1 transition"
+                title="Fotos auf dem Smartphone speichern"
               >
-                <span>📄 Text</span>
+                <i data-lucide="download" class="w-3.5 h-3.5 text-sky-400"></i>
+                <span>Fotos</span>
               </button>
+
+              <button
+                type="button"
+                data-action="${isSold ? 'unmark-sold' : 'mark-sold'}"
+                data-id="${item.id}"
+                class="flex-1 py-1.5 px-2 rounded-lg ${isSold ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-900 hover:bg-slate-800 text-slate-200'} font-semibold text-[11px] flex items-center justify-center gap-1 transition"
+                title="Als verkauft markieren"
+              >
+                <i data-lucide="check-circle" class="w-3.5 h-3.5 text-amber-400"></i>
+                <span>${isSold ? 'Verkauft ✓' : 'Verkauft?'}</span>
+              </button>
+
               <button
                 type="button"
                 data-action="delete"
                 data-id="${item.id}"
-                class="py-2 px-2.5 rounded-xl text-slate-500 hover:text-rose-400 hover:bg-slate-800 text-xs transition"
-                title="Löschen"
+                class="py-1.5 px-2.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold text-[11px] flex items-center justify-center transition"
+                title="Artikel löschen"
               >
-                ✕
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
               </button>
             </div>
-          </div>
+            `
+              : ''
+          }
         </div>
       `;
     })
@@ -5069,23 +4948,28 @@ if (batchItemsList) {
       return;
     }
 
+    if (action === 'toggle-more') {
+      moreMenuForItemId = moreMenuForItemId === item.id ? null : item.id;
+      renderBatchDashboard();
+      return;
+    }
+
     if (action === 'mark-sold') {
-      const customPriceInput = document.getElementById(`soldPriceInput_${item.id}`);
-      const customPrice = customPriceInput ? Number(customPriceInput.value || 0) : Number(item.soldPrice || item.data?.recommendedPrice || 0);
+      const customPrice = Number(item.soldPrice || item.data?.recommendedPrice || 0);
       item.isSold = true;
       item.isListed = true;
       item.soldAt = item.soldAt || Date.now();
       item.soldPrice = customPrice;
-      editingLinkForItemId = null;
+      moreMenuForItemId = null;
       await saveBatchToStorage(item);
       renderBatchDashboard();
-      showToast(`💰 Artikel als „Verkauft“ (${customPrice} €) gespeichert!`);
+      showToast(`💰 Als „Verkauft“ (${customPrice} €) markiert!`);
       return;
     }
 
     if (action === 'unmark-sold') {
       item.isSold = false;
-      editingLinkForItemId = null;
+      moreMenuForItemId = null;
       await saveBatchToStorage(item);
       renderBatchDashboard();
       showToast('Verkauft-Status aufgehoben');
