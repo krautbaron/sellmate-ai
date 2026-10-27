@@ -3092,20 +3092,35 @@ function extractJsonFromText(rawText) {
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/```(?:json)?([\s\S]*?)```/gi, '$1')
     .trim();
-  const match = cleaned.match(/\{[\s\S]*\}/);
-  if (!match) return null;
 
-  const jsonCandidate = match[0];
+  let jsonCandidate = '';
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (match) {
+    jsonCandidate = match[0];
+  } else {
+    const startIdx = cleaned.indexOf('{');
+    if (startIdx !== -1) {
+      jsonCandidate = cleaned.slice(startIdx) + '\n}';
+    }
+  }
+  if (!jsonCandidate) return null;
+
   try {
     return JSON.parse(jsonCandidate);
   } catch (e1) {
-    // 1. Bereinige typische LLM-Syntaxfehler wie trailing commas vor } oder ]
+    // 1. Bereinige typische LLM-Syntaxfehler wie trailing commas vor } oder ] und Steuerzeichen
     try {
-      const fixedComma = jsonCandidate.replace(/,\s*([\}\]])/g, '$1');
+      const fixedComma = jsonCandidate
+        .replace(/,\s*([\}\]])/g, '$1')
+        .replace(/[\x00-\x1F\x7F-\x9F]/g, (c) => (c === '\n' || c === '\r' || c === '\t' ? c : ''));
       return JSON.parse(fixedComma);
     } catch (e2) {
-      // 2. Regex-Fallback für Schlüsselattribute (title, description, priceAndRarityAnalysis)
+      // 2. Regex-Fallback für Schlüsselattribute (title, description, itemName, price)
       const res = {};
+      const itemMatch = jsonCandidate.match(/"itemName"\s*:\s*"((?:\\.|[^"\\])*)"/);
+      if (itemMatch) {
+        try { res.itemName = JSON.parse(`"${itemMatch[1]}"`); } catch (_) { res.itemName = itemMatch[1]; }
+      }
       const titleMatch = jsonCandidate.match(/"title"\s*:\s*"((?:\\.|[^"\\])*)"/);
       if (titleMatch) {
         try { res.title = JSON.parse(`"${titleMatch[1]}"`); } catch (_) { res.title = titleMatch[1]; }
@@ -3118,7 +3133,11 @@ function extractJsonFromText(rawText) {
       if (priceMatch) {
         try { res.priceAndRarityAnalysis = JSON.parse(`"${priceMatch[1]}"`); } catch (_) { res.priceAndRarityAnalysis = priceMatch[1]; }
       }
-      if (res.title || res.description) {
+      const recPriceMatch = jsonCandidate.match(/"recommendedPrice"\s*:\s*(\d+)/);
+      if (recPriceMatch) {
+        res.recommendedPrice = Number(recPriceMatch[1]);
+      }
+      if (res.title || res.description || res.itemName) {
         return res;
       }
       return null;
@@ -3956,8 +3975,8 @@ Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit diesen Feldern:
     systemPrompt,
     userPrompt: batchPrompt,
     images: itemImages,
-    maxTokens: 1300,
-    timeoutMs: 15000,
+    maxTokens: 1800,
+    timeoutMs: 35000,
     allowGeminiSearch: false,
     deductCredit: true
   });
