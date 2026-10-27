@@ -5219,6 +5219,9 @@ const authTabLogin = document.getElementById('authTabLogin');
 const authTabRegister = document.getElementById('authTabRegister');
 let authMode = 'login'; // 'login' | 'register'
 
+const guestSaveListBanner = document.getElementById('guestSaveListBanner');
+const btnBannerOpenAuth = document.getElementById('btnBannerOpenAuth');
+
 const btnAuthPasskeyLogin = document.getElementById('btnAuthPasskeyLogin');
 const btnAuthGoogle = document.getElementById('btnAuthGoogle');
 const btnAuthApple = document.getElementById('btnAuthApple');
@@ -5765,11 +5768,13 @@ function updateAuthHeaderIndicator() {
     authHeaderAvatar.className = 'w-5 h-5 rounded-full bg-emerald-400 text-slate-950 flex items-center justify-center font-bold ring-2 ring-emerald-500/30';
     authHeaderLabel.textContent = (user.name || user.email.split('@')[0]).slice(0, 10);
     btnAuthModal.classList.add('border-emerald-500/40');
+    if (guestSaveListBanner) guestSaveListBanner.classList.add('hidden');
   } else {
     authHeaderAvatar.innerHTML = `<i data-lucide="user" class="w-3 h-3 text-slate-300"></i>`;
     authHeaderAvatar.className = 'w-5 h-5 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-[10px] font-bold border border-white/10';
     authHeaderLabel.textContent = 'Anmelden';
     btnAuthModal.classList.remove('border-emerald-500/40');
+    if (guestSaveListBanner) guestSaveListBanner.classList.remove('hidden');
   }
   lucide.createIcons();
 }
@@ -5927,6 +5932,13 @@ function initAuthSystem() {
 // Event-Listeners für das Auth-System
 if (btnAuthModal) {
   btnAuthModal.addEventListener('click', openAuthModal);
+}
+
+if (btnBannerOpenAuth) {
+  btnBannerOpenAuth.addEventListener('click', () => {
+    openAuthModal();
+    setAuthMode('register');
+  });
 }
 
 if (btnCloseAuthModal) {
