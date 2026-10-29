@@ -599,6 +599,19 @@ export default async function handler(req, res) {
           ];
         }
 
+        const reqBody = {
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userContent }
+          ],
+          temperature: 0.2,
+          max_tokens: Math.max(1500, Math.min(4000, Number(maxTokens) || 2500))
+        };
+        if (model.includes('glm-5') || model.includes('r1')) {
+          reqBody.reasoning_effort = 'low';
+        }
+
         const oaiRes = await fetch(`${baseUrl}/chat/completions`, {
           method: 'POST',
           headers: {
@@ -607,16 +620,8 @@ export default async function handler(req, res) {
             'HTTP-Referer': 'https://sellmate-ai.vercel.app',
             'X-Title': 'SellMate AI'
           },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userContent }
-            ],
-            temperature: 0.2,
-            max_tokens: Math.max(1200, Math.min(3500, Number(maxTokens) || 2000))
-          }),
-          signal: AbortSignal.timeout(35000)
+          body: JSON.stringify(reqBody),
+          signal: AbortSignal.timeout(45000)
         });
 
         const oaiData = await oaiRes.json().catch(() => ({}));
@@ -632,16 +637,39 @@ export default async function handler(req, res) {
           return res.status(oaiRes.status).json({ error: errMsg, ticket });
         }
 
-        const rawChoice = oaiData?.choices?.[0]?.message?.content || '';
-        rawText = rawChoice.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-        if (!rawText && rawChoice.trim()) {
-          rawText = rawChoice.replace(/<\/?think>/gi, '').trim();
+        const firstChoice = oaiData?.choices?.[0];
+        const rawContent = (firstChoice?.message?.content || '').trim();
+        const rawReasoning = (firstChoice?.message?.reasoning_content || '').trim();
+
+        // Wenn content leer ist, prüfe ob das Modell das Ergebnis in reasoning_content ausgegeben hat
+        let candidateText = rawContent || rawReasoning;
+
+        // Bereinige etwaige <think>...</think> Tags
+        rawText = candidateText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        if (!rawText && candidateText) {
+          // Falls <think> noch offen war (z.B. wegen Tokenbegrenzung vor </think>)
+          rawText = candidateText.replace(/<think>[\s\S]*/gi, '').trim();
+          if (!rawText) {
+            rawText = candidateText.replace(/<\/?think>/gi, '').trim();
+          }
         }
+        if (!rawText && rawReasoning) {
+          rawText = rawReasoning.replace(/<\/?think>/gi, '').trim();
+        }
+
         usedModel = `${provider === 'neuralwatt' ? 'Neuralwatt' : 'Cloud'} (${model})`;
       }
 
       if (!rawText) {
-        return res.status(500).json({ error: 'Leere Antwort vom KI-Modell.' });
+        return res.status(500).json({
+          error: 'Leere Antwort vom KI-Modell.',
+          debug: {
+            finishReason: oaiData?.choices?.[0]?.finish_reason,
+            hasContent: Boolean(oaiData?.choices?.[0]?.message?.content),
+            hasReasoning: Boolean(oaiData?.choices?.[0]?.message?.reasoning_content),
+            usage: oaiData?.usage
+          }
+        });
       }
 
       const afterCredit = await checkOrConsumeCredit(deductCredit ? 1 : 0);

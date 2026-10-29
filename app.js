@@ -3153,11 +3153,11 @@ Antworte AUSSCHLIESSLICH als kurzes, valides JSON-Objekt mit diesen Feldern:
 }`;
 
     const step1 = await executeUnifiedVisionRequest({
-      systemPrompt: 'Du bist ein rein optischer Bild-Analyst. Du rätst NIEMALS Marken (kein McDonald\'s/Happy Meal!) oder Eigennamen, sondern extrahierst knappe, präzise Suchbegriffe als JSON.',
+      systemPrompt: 'Du bist ein rein optischer Bild-Analyst. Du rätst NIEMALS Marken (kein McDonald\'s/Happy Meal!) oder Eigennamen, sondern extrahierst knappe, präzise Suchbegriffe als JSON. Antworte DIREKT und STRIKT als JSON ohne <think>-Block.',
       userPrompt: queryGenPrompt,
       images,
-      maxTokens: 1200,
-      timeoutMs: 25000,
+      maxTokens: 1500,
+      timeoutMs: 30000,
       allowGeminiSearch: false,
       deductCredit: false,
       onStatusUpdate
@@ -3395,11 +3395,11 @@ Antworte ausschließlich als valides JSON-Objekt (ohne umschließenden Markdown-
     // Stufe 3 bekommt das schlanke 800px-Foto (~55 KB) + die Tavily-Ergebnisse, damit das Vision-Modell Foto & Web-Treffer visuell abgleichen kann!
     addDiagLog('Stufe 3/3: Visueller Abgleich von Foto + Web-Quellen & Texterstellung...');
     const aiResponse = await executeUnifiedVisionRequest({
-      systemPrompt,
+      systemPrompt: `${systemPrompt}\nWICHTIG: Antworte DIREKT und AUSSCHLIESSLICH als valides JSON-Objekt ohne <think>-Block / ohne einleitenden Text.`,
       userPrompt: fullUserPrompt,
       images: uploadedImages,
-      maxTokens: 1300,
-      timeoutMs: 35000,
+      maxTokens: 3000,
+      timeoutMs: 45000,
       allowGeminiSearch: useSearch && !tavilyData,
       deductCredit: true,
       onStatusUpdate: (msg) => {
@@ -3457,6 +3457,19 @@ function extractJsonFromText(rawText) {
     .replace(/```(?:json)?([\s\S]*?)```/gi, '$1')
     .trim();
 
+  // Falls ein noch unvollständiger <think>-Block am Anfang steht (ohne schließendes </think>)
+  if (cleaned.startsWith('<think>')) {
+    const endThink = cleaned.indexOf('</think>');
+    if (endThink !== -1) {
+      cleaned = cleaned.slice(endThink + 8).trim();
+    } else {
+      const firstBrace = cleaned.indexOf('{');
+      if (firstBrace !== -1) {
+        cleaned = cleaned.slice(firstBrace).trim();
+      }
+    }
+  }
+
   let jsonCandidate = '';
   const match = cleaned.match(/\{[\s\S]*\}/);
   if (match) {
@@ -3479,7 +3492,7 @@ function extractJsonFromText(rawText) {
         .replace(/[\x00-\x1F\x7F-\x9F]/g, (c) => (c === '\n' || c === '\r' || c === '\t' ? c : ''));
       return JSON.parse(fixedComma);
     } catch (e2) {
-      // 2. Regex-Fallback für Schlüsselattribute (title, description, itemName, price)
+      // 2. Regex-Fallback für Schlüsselattribute bei eventuell abgeschnittener Antwort
       const res = {};
       const itemMatch = jsonCandidate.match(/"itemName"\s*:\s*"((?:\\.|[^"\\])*)"/);
       if (itemMatch) {
@@ -3500,6 +3513,26 @@ function extractJsonFromText(rawText) {
       const recPriceMatch = jsonCandidate.match(/"recommendedPrice"\s*:\s*(\d+)/);
       if (recPriceMatch) {
         res.recommendedPrice = Number(recPriceMatch[1]);
+      }
+      const minPriceMatch = jsonCandidate.match(/"minPrice"\s*:\s*(\d+)/);
+      if (minPriceMatch) {
+        res.minPrice = Number(minPriceMatch[1]);
+      }
+      const maxPriceMatch = jsonCandidate.match(/"maxPrice"\s*:\s*(\d+)/);
+      if (maxPriceMatch) {
+        res.maxPrice = Number(maxPriceMatch[1]);
+      }
+      const scoreMatch = jsonCandidate.match(/"sellabilityScore"\s*:\s*(\d+)/);
+      if (scoreMatch) {
+        res.sellabilityScore = Number(scoreMatch[1]);
+      }
+      const reasonMatch = jsonCandidate.match(/"sellabilityReason"\s*:\s*"((?:\\.|[^"\\])*)"/);
+      if (reasonMatch) {
+        try { res.sellabilityReason = JSON.parse(`"${reasonMatch[1]}"`); } catch (_) { res.sellabilityReason = reasonMatch[1]; }
+      }
+      const rarityMatch = jsonCandidate.match(/"isRarity"\s*:\s*(true|false)/i);
+      if (rarityMatch) {
+        res.isRarity = rarityMatch[1].toLowerCase() === 'true';
       }
       if (res.title || res.description || res.itemName) {
         return res;
@@ -4317,7 +4350,7 @@ ${userNotes ? `WICHTIGE NUTZER-NOTIZ ZUM ARTIKEL/ZUSTAND: "${userNotes}" (Berüc
 3. Ermittle den realistischen Gebrauchtpreis in Euro (minPrice, maxPrice, recommendedPrice als Zahl) und prüfe auf RARITÄT / EOL (End-of-Life).
 4. Erstelle direkt den fertigen Verkaufstitel und eine spezifische, verkaufsstarke Beschreibung mit echten Produktdetails (100% reiner Text OHNE Markdown, keine **, keine ###, Aufzählungen mit -, keine Versandfloskeln, kein Disclaimer).
 ${tavilyData ? '\n' + tavilyData.contextText + '\n' : ''}
-Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit diesen Feldern:
+WICHTIG: Antworte DIREKT und AUSSCHLIESSLICH als valides JSON-Objekt ohne <think>-Block / ohne Erklärungen:
 {
   "itemName": "Exakter offizieller Name & Modell des erkannten Artikels",
   "identificationConfidence": "hoch" | "mittel" | "niedrig",
@@ -4336,11 +4369,11 @@ Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit diesen Feldern:
 }`;
 
   const aiRes = await executeUnifiedVisionRequest({
-    systemPrompt,
+    systemPrompt: `${systemPrompt}\nWICHTIG: Antworte DIREKT und AUSSCHLIESSLICH als valides JSON-Objekt ohne <think>-Block / ohne einleitenden Text.`,
     userPrompt: batchPrompt,
     images: itemImages,
-    maxTokens: 1800,
-    timeoutMs: 35000,
+    maxTokens: 3000,
+    timeoutMs: 45000,
     allowGeminiSearch: false,
     deductCredit: true
   });
