@@ -562,15 +562,15 @@ function getInstantTroubleshootingTip(context) {
   if (msg.includes('429') || msg.includes('rate') || msg.includes('limit') || msg.includes('overload') || msg.includes('busy') || msg.includes('ausgelastet') || msg.includes('exhausted')) {
     tips.push('Das aktuelle KI-Modell ist im Moment überlastet oder das Anfragelimit wurde erreicht. Wechsle mit einem Klick auf das schnelle Alternativmodell Qwen 3.8 27B Vision oder warte ca. 30 Sekunden.');
     actions.push({
-      label: 'Auf Qwen 3.8 27B wechseln',
+      label: 'Auf Kimi K3 Fast wechseln',
       primary: true,
       onClick: () => {
         if (typeof adminNeuralwattModelSelect !== 'undefined' && adminNeuralwattModelSelect) {
-          adminNeuralwattModelSelect.value = 'glm-5.3-flash';
-          localStorage.setItem('sellmate_neuralwatt_model', 'glm-5.3-flash');
-          localStorage.setItem('sellmate_owner_model_override', 'glm-5.3-flash');
+          adminNeuralwattModelSelect.value = 'kimi-k3-fast';
+          localStorage.setItem('sellmate_neuralwatt_model', 'kimi-k3-fast');
+          localStorage.setItem('sellmate_owner_model_override', 'kimi-k3-fast');
         }
-        showToast('Modell auf GLM 5.3 Flash gewechselt!');
+        showToast('Modell auf Kimi K3 Fast gewechselt!');
         closeReportErrorModal();
         if (btnRetryAnalysis) btnRetryAnalysis.click();
       }
@@ -1782,7 +1782,11 @@ if (btnAdminActivateOwnerCode) {
 }
 
 function loadAdminAiPromptsTab() {
-  const currentModelOverride = localStorage.getItem('sellmate_owner_model_override') || 'glm-5.3-flash';
+  let currentModelOverride = localStorage.getItem('sellmate_owner_model_override');
+  if (!currentModelOverride || currentModelOverride === 'glm-5.3-flash') {
+    currentModelOverride = 'kimi-k3-fast';
+    localStorage.setItem('sellmate_owner_model_override', 'kimi-k3-fast');
+  }
   if (adminNeuralwattModelSelect) {
     adminNeuralwattModelSelect.value = currentModelOverride;
   }
@@ -2761,7 +2765,11 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = 
 
   if (shouldUseProxy) {
     const codeToSend = inviteCode || 'OWNER-BARON';
-    const activeModel = localStorage.getItem('sellmate_owner_model_override') || 'glm-5.3-flash';
+    let activeModel = localStorage.getItem('sellmate_owner_model_override');
+    if (!activeModel || activeModel === 'glm-5.3-flash') {
+      activeModel = 'kimi-k3-fast';
+      localStorage.setItem('sellmate_owner_model_override', 'kimi-k3-fast');
+    }
     if (onStatusUpdate) {
       onStatusUpdate(`Sende Anfrage an sicheren Cloud-Proxy (${activeModel})...`);
     }
