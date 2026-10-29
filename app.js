@@ -2193,13 +2193,13 @@ async function handleFiles(files) {
   if (!fileArray.length) return;
 
   for (const file of fileArray) {
-    const compressed = await compressImage(file, 1024, 0.82);
+    const compressed = await compressImage(file, 960, 0.78);
     uploadedImages.push(compressed);
   }
   renderImagePreviews();
 }
 
-function compressImage(file, maxDimension = 1024, quality = 0.82) {
+function compressImage(file, maxDimension = 960, quality = 0.78) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -2769,6 +2769,12 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs || 40000);
     try {
+      // Schlanke Bild-Payload: dataUrl weglassen (wird nur im Frontend fürs <img> gebraucht), um Vercel 4.5MB Payload-Limits sicher einzuhalten!
+      const leanImages = (images || []).map((img) => ({
+        mimeType: img.mimeType || 'image/jpeg',
+        base64: img.base64
+      }));
+
       const res = await callProxyApi(
         {
           inviteCode: codeToSend,
@@ -2777,7 +2783,7 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = 
           payload: {
             systemPrompt,
             userPrompt,
-            images,
+            images: leanImages,
             maxTokens,
             modelOverride: activeModel,
             clientApiKey: getProviderApiKey('neuralwatt') || undefined,
@@ -4100,7 +4106,7 @@ async function handleBatchCameraCapture(files, startNewItem = false) {
   }
 
   for (const file of imageFiles) {
-    const compressed = await compressImage(file, 1024, 0.82);
+    const compressed = await compressImage(file, 960, 0.78);
     batchStagingImages.push(compressed);
   }
 
@@ -4122,8 +4128,8 @@ async function enqueueBatchFiles(files) {
   showToast(`${imageFiles.length} Foto(s) zur Agenten-Warteschlange hinzugefügt!`);
 
   for (const file of imageFiles) {
-    // Komprimiere auf 1024px für detailgetreue Hintergrund-Verarbeitung & OCR
-    const compressed = await compressImage(file, 1024, 0.82);
+    // Komprimiere auf 960px (~120 KB) für schnelle, sichere Hintergrund-Verarbeitung & OCR
+    const compressed = await compressImage(file, 960, 0.78);
     batchItems.unshift({
       id: 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       createdAt: Date.now(),
@@ -4174,7 +4180,7 @@ if (batchAddPhotoToItemInput) {
 
     const existingImgs = getBatchItemImages(item);
     for (const file of files) {
-      const compressed = await compressImage(file, 1024, 0.82);
+      const compressed = await compressImage(file, 960, 0.78);
       existingImgs.push(compressed);
     }
     item.images = existingImgs;
@@ -4274,8 +4280,8 @@ async function runBatchAgentQueue() {
 
       await saveBatchToStorage(nextItem);
       renderBatchDashboard();
-      // Kurze Pause zwischen zwei Hintergrund-Requests
-      await sleep(1000);
+      // Kurze Pause zwischen Hintergrund-Requests (schützt vor Server-Rate-Limits)
+      await sleep(2000);
     }
   } finally {
     isBatchWorkerRunning = false;
