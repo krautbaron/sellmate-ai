@@ -229,7 +229,7 @@ export default async function handler(req, res) {
       codes: Array.isArray(codes) ? codes : [],
       serverConfig: {
         provider: process.env.SERVER_AI_PROVIDER || 'neuralwatt',
-        model: process.env.SERVER_AI_MODEL || 'qwen-3.8-27b',
+        model: process.env.SERVER_AI_MODEL || 'glm-5.3-flash',
         hasAiKey: Boolean(process.env.SERVER_AI_API_KEY),
         aiKeyPreview: process.env.SERVER_AI_API_KEY ? `${process.env.SERVER_AI_API_KEY.slice(0, 5)}...${process.env.SERVER_AI_API_KEY.slice(-4)}` : 'nicht hinterlegt',
         hasTavily: Boolean(process.env.SERVER_TAVILY_API_KEY),
@@ -497,34 +497,24 @@ export default async function handler(req, res) {
       if (provider === 'gemini') {
         let targetModel = (process.env.SERVER_AI_MODEL || '').trim();
 
-        // Standardmäßig gemini-3.8-flash nutzen (von Google für neue Keys gefordert)
-        if (!targetModel || targetModel.includes('2.5') || targetModel.includes('lite') || targetModel.includes('2.0')) {
-          targetModel = 'gemini-3.8-flash';
+        // Standardmäßig gemini-2.0-flash / gemini-1.5-flash nutzen
+        if (!targetModel || targetModel.includes('2.5') || targetModel.includes('lite')) {
+          targetModel = 'gemini-2.0-flash';
         }
 
         const parts = [
-          ...(images || []).slice(0, 4).map((img) => ({
+          ...(images || []).slice(0, 10).map((img) => ({
             inline_data: { mime_type: img.mimeType || 'image/jpeg', data: img.base64 }
           })),
           { text: userPrompt }
         ];
 
-        const body = {
-          system_instruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ role: 'user', parts }],
-          generationConfig: { temperature: 0.2 }
-        };
-
-        if (allowGeminiSearch) {
-          body.tools = [{ google_search: {} }];
-        } else {
-          body.generationConfig.responseMimeType = 'application/json';
-        }
-
         const candidateModels = [
-          'gemini-2.5-flash',
+          targetModel,
+          'gemini-2.0-flash',
+          'gemini-1.5-flash',
           'gemini-flash-latest'
-        ];
+        ].filter((v, i, a) => Boolean(v) && a.indexOf(v) === i);
 
         let lastGemError = '';
         let lastGemStatus = 500;
@@ -553,7 +543,7 @@ export default async function handler(req, res) {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
-                signal: AbortSignal.timeout(6000)
+                signal: AbortSignal.timeout(30000)
               }
             );
             gemData = await gemRes.json().catch(() => ({}));
@@ -596,12 +586,12 @@ export default async function handler(req, res) {
           groq: 'https://api.groq.com/openai/v1'
         };
         const baseUrl = (process.env.SERVER_AI_BASE_URL || defaultUrls[provider] || 'https://api.neuralwatt.com/v1').replace(/\/+$/, '');
-        const model = (payload.modelOverride || process.env.SERVER_AI_MODEL || (provider === 'neuralwatt' ? 'qwen-3.8-27b' : 'gemma-4-31b')).trim();
+        const model = (payload.modelOverride || process.env.SERVER_AI_MODEL || (provider === 'neuralwatt' ? 'glm-5.3-flash' : 'gemma-4-31b')).trim();
 
         let userContent = userPrompt;
         if (images && images.length > 0) {
           userContent = [
-            ...images.slice(0, 4).map((img) => ({
+            ...images.slice(0, 10).map((img) => ({
               type: 'image_url',
               image_url: { url: `data:${img.mimeType || 'image/jpeg'};base64,${img.base64}` }
             })),
@@ -626,7 +616,7 @@ export default async function handler(req, res) {
             temperature: 0.2,
             max_tokens: Math.max(1200, Math.min(3500, Number(maxTokens) || 2000))
           }),
-          signal: AbortSignal.timeout(28000)
+          signal: AbortSignal.timeout(35000)
         });
 
         const oaiData = await oaiRes.json().catch(() => ({}));

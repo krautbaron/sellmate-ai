@@ -264,11 +264,11 @@ const PROVIDERS = {
     helpUrl: 'https://neuralwatt.com',
     helperText: 'Neuralwatt bietet extrem günstige, schnelle Vision-Modelle (OpenAI-kompatibel unter https://api.neuralwatt.com/v1) ohne strenge Free-Tier Rate-Limits.',
     defaultModels: [
-      { id: 'qwen-3.8-27b', label: 'Qwen 3.8 27B (Flagship Vision – Empfohlen!)' },
+      { id: 'glm-5.3-flash', label: '🚀 GLM 5.3 Flash (Multimodal Vision – Schnell & Stark!)' },
+      { id: 'qwen-3.8-27b', label: 'Qwen 3.8 27B (Flagship Vision)' },
       { id: 'gemma-4-31b', label: 'Google Gemma 4 31B (Multimodal Text + Vision)' },
       { id: 'kimi-k3', label: 'Moonshot Kimi K3 (Multimodal Vision)' },
-      { id: 'nw-small', label: 'Neuralwatt Small (Qwen3.8-27B Vision)' },
-      { id: 'glm-5.3-flash', label: 'GLM 5.3 Flash (Multimodal Vision & Schnell)' }
+      { id: 'nw-small', label: 'Neuralwatt Small (Qwen3.8-27B Vision)' }
     ]
   },
   gemini: {
@@ -565,10 +565,11 @@ function getInstantTroubleshootingTip(context) {
       primary: true,
       onClick: () => {
         if (typeof adminNeuralwattModelSelect !== 'undefined' && adminNeuralwattModelSelect) {
-          adminNeuralwattModelSelect.value = 'qwen-3.8-27b';
-          localStorage.setItem('sellmate_neuralwatt_model', 'qwen-3.8-27b');
+          adminNeuralwattModelSelect.value = 'glm-5.3-flash';
+          localStorage.setItem('sellmate_neuralwatt_model', 'glm-5.3-flash');
+          localStorage.setItem('sellmate_owner_model_override', 'glm-5.3-flash');
         }
-        showToast('Modell auf Qwen 3.8 27B Vision gewechselt!');
+        showToast('Modell auf GLM 5.3 Flash gewechselt!');
         closeReportErrorModal();
         if (btnRetryAnalysis) btnRetryAnalysis.click();
       }
@@ -1776,7 +1777,7 @@ if (btnAdminActivateOwnerCode) {
 }
 
 function loadAdminAiPromptsTab() {
-  const currentModelOverride = localStorage.getItem('sellmate_owner_model_override') || 'qwen-3.8-27b';
+  const currentModelOverride = localStorage.getItem('sellmate_owner_model_override') || 'glm-5.3-flash';
   if (adminNeuralwattModelSelect) {
     adminNeuralwattModelSelect.value = currentModelOverride;
   }
@@ -2746,20 +2747,21 @@ async function callOpenAICompatibleVision({ provider, baseUrl, apiKey, model, sy
   };
 }
 
-async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = [], maxTokens = 1400, timeoutMs = 24000, allowGeminiSearch = false, deductCredit = true, onStatusUpdate = null }) {
+async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = [], maxTokens = 1400, timeoutMs = 40000, allowGeminiSearch = false, deductCredit = true, onStatusUpdate = null }) {
   // Wenn ein Einladungscode aktiv ist oder kein eigener API-Key hinterlegt wurde -> über Vercel Cloud-Proxy leiten
   if (isInviteModeActive() || !getApiKey()) {
     if (!isInviteModeActive() && !getApiKey()) {
       openInviteUserModal();
       throw new Error('Bitte gib zuerst einen Einladungscode ein, um Artikel zu analysieren.');
     }
+    const activeModel = localStorage.getItem('sellmate_owner_model_override') || 'glm-5.3-flash';
     if (onStatusUpdate) {
-      onStatusUpdate('Sende Anfrage an sicheren Cloud-Proxy (Neuralwatt)...');
+      onStatusUpdate(`Sende Anfrage an sicheren Cloud-Proxy (${activeModel})...`);
     }
-    addDiagLog(`Cloud-Proxy Vision-Request (Code: "${getInviteCode()}", Bilder: ${images.length}, Credit-Abzug: ${deductCredit})...`);
+    addDiagLog(`Cloud-Proxy Vision-Request (Code: "${getInviteCode()}", Modell: ${activeModel}, Bilder: ${images.length}, Credit-Abzug: ${deductCredit})...`);
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs || 35000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 40000);
     try {
       const res = await callProxyApi(
         {
@@ -2771,7 +2773,7 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = 
             userPrompt,
             images,
             maxTokens,
-            modelOverride: localStorage.getItem('sellmate_owner_model_override') || 'qwen-3.8-27b',
+            modelOverride: activeModel,
             clientApiKey: getProviderApiKey('neuralwatt') || undefined,
             allowGeminiSearch
           }
