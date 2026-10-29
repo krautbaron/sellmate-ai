@@ -264,10 +264,11 @@ const PROVIDERS = {
     helpUrl: 'https://neuralwatt.com',
     helperText: 'Neuralwatt bietet extrem günstige, schnelle Vision-Modelle (OpenAI-kompatibel unter https://api.neuralwatt.com/v1) ohne strenge Free-Tier Rate-Limits.',
     defaultModels: [
-      { id: 'glm-5.3-flash', label: '🚀 GLM 5.3 Flash (Multimodal Vision – Schnell & Stark!)' },
+      { id: 'kimi-k3-fast', label: '🚀 Kimi K3 Fast (Multimodal Vision – Blitzschnell & Stark!)' },
+      { id: 'kimi-k3', label: 'Moonshot Kimi K3 (Multimodal Vision + Reasoning)' },
+      { id: 'glm-5.3-flash', label: 'GLM 5.3 Flash (Multimodal Vision)' },
       { id: 'qwen-3.8-27b', label: 'Qwen 3.8 27B (Flagship Vision)' },
       { id: 'gemma-4-31b', label: 'Google Gemma 4 31B (Multimodal Text + Vision)' },
-      { id: 'kimi-k3', label: 'Moonshot Kimi K3 (Multimodal Vision)' },
       { id: 'nw-small', label: 'Neuralwatt Small (Qwen3.8-27B Vision)' }
     ]
   },

@@ -229,7 +229,7 @@ export default async function handler(req, res) {
       codes: Array.isArray(codes) ? codes : [],
       serverConfig: {
         provider: process.env.SERVER_AI_PROVIDER || 'neuralwatt',
-        model: process.env.SERVER_AI_MODEL || 'glm-5.3-flash',
+        model: process.env.SERVER_AI_MODEL || 'kimi-k3-fast',
         hasAiKey: Boolean(process.env.SERVER_AI_API_KEY),
         aiKeyPreview: process.env.SERVER_AI_API_KEY ? `${process.env.SERVER_AI_API_KEY.slice(0, 5)}...${process.env.SERVER_AI_API_KEY.slice(-4)}` : 'nicht hinterlegt',
         hasTavily: Boolean(process.env.SERVER_TAVILY_API_KEY),
@@ -602,7 +602,7 @@ export default async function handler(req, res) {
           groq: 'https://api.groq.com/openai/v1'
         };
         const baseUrl = (process.env.SERVER_AI_BASE_URL || defaultUrls[provider] || 'https://api.neuralwatt.com/v1').replace(/\/+$/, '');
-        const model = (payload.modelOverride || process.env.SERVER_AI_MODEL || (provider === 'neuralwatt' ? 'glm-5.3-flash' : 'gemma-4-31b')).trim();
+        const model = (payload.modelOverride || process.env.SERVER_AI_MODEL || (provider === 'neuralwatt' ? 'kimi-k3-fast' : 'gemma-4-31b')).trim();
 
         let userContent = userPrompt;
         if (images && images.length > 0) {
@@ -626,6 +626,9 @@ export default async function handler(req, res) {
         };
         if (model.includes('glm-5') || model.includes('r1')) {
           reqBody.reasoning_effort = 'low';
+        }
+        if (model.includes('kimi-k3') && !model.includes('-fast')) {
+          reqBody.reasoning_effort = 'none';
         }
 
         const oaiRes = await fetch(`${baseUrl}/chat/completions`, {
