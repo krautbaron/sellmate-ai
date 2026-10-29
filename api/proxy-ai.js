@@ -296,10 +296,25 @@ export default async function handler(req, res) {
   }
 
   if (action === 'list_models') {
+    const provider = (process.env.SERVER_AI_PROVIDER || 'neuralwatt').toLowerCase().trim();
     const apiKey = (process.env.SERVER_AI_API_KEY || '').trim();
-    const mRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
-    const mData = await mRes.json().catch(() => ({}));
-    return res.status(200).json(mData);
+    if (provider === 'gemini') {
+      const mRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
+      const mData = await mRes.json().catch(() => ({}));
+      return res.status(200).json(mData);
+    } else {
+      const defaultUrls = {
+        neuralwatt: 'https://api.neuralwatt.com/v1',
+        openrouter: 'https://openrouter.ai/api/v1',
+        groq: 'https://api.groq.com/openai/v1'
+      };
+      const baseUrl = (process.env.SERVER_AI_BASE_URL || defaultUrls[provider] || 'https://api.neuralwatt.com/v1').replace(/\/+$/, '');
+      const mRes = await fetch(`${baseUrl}/models`, {
+        headers: { Authorization: `Bearer ${apiKey}` }
+      });
+      const mData = await mRes.json().catch(() => ({}));
+      return res.status(200).json(mData);
+    }
   }
 
   if (!supabaseUrl || !supabaseServiceKey) {
@@ -493,6 +508,7 @@ export default async function handler(req, res) {
       let usedModel = '';
       let usedSearch = false;
       let groundingMetadata = null;
+      let oaiData = null;
 
       if (provider === 'gemini') {
         let targetModel = (process.env.SERVER_AI_MODEL || '').trim();
@@ -624,7 +640,7 @@ export default async function handler(req, res) {
           signal: AbortSignal.timeout(45000)
         });
 
-        const oaiData = await oaiRes.json().catch(() => ({}));
+        oaiData = await oaiRes.json().catch(() => ({}));
         if (!oaiRes.ok) {
           const errMsg = oaiData?.error?.message || `KI-Server-Fehler (${oaiRes.status})`;
           const ticket = await createAutoGitHubTicket({
