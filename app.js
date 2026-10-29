@@ -1754,10 +1754,14 @@ if (btnAdminActivateOwnerCode) {
   btnAdminActivateOwnerCode.addEventListener('click', async () => {
     btnAdminActivateOwnerCode.disabled = true;
     try {
-      await callProxyApi({
+      const res = await callProxyApi({
         action: 'admin_upsert_code',
         payload: { code: 'OWNER-BARON', label: 'Owner Baron', creditsTotal: 9999, creditsUsed: 0, isActive: true }
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
       saveInviteStatus({
         code: 'OWNER-BARON',
         remainingCredits: 9999,
@@ -2748,24 +2752,26 @@ async function callOpenAICompatibleVision({ provider, baseUrl, apiKey, model, sy
 }
 
 async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = [], maxTokens = 1400, timeoutMs = 40000, allowGeminiSearch = false, deductCredit = true, onStatusUpdate = null }) {
-  // Wenn ein Einladungscode aktiv ist oder kein eigener API-Key hinterlegt wurde -> über Vercel Cloud-Proxy leiten
-  if (isInviteModeActive() || !getApiKey()) {
-    if (!isInviteModeActive() && !getApiKey()) {
-      openInviteUserModal();
-      throw new Error('Bitte gib zuerst einen Einladungscode ein, um Artikel zu analysieren.');
-    }
+  const activeProv = getActiveProvider();
+  const inviteCode = getInviteCode();
+  // Wenn Neuralwatt aktiv ist, ein Einladungscode vorliegt oder kein direkter API-Key hinterlegt ist:
+  // IMMER über den sicheren Vercel-Proxy leiten (verhindert CORS-Blockaden bei Browser-Fetch auf api.neuralwatt.com)
+  const shouldUseProxy = isInviteModeActive() || activeProv === 'neuralwatt' || !getApiKey();
+
+  if (shouldUseProxy) {
+    const codeToSend = inviteCode || 'OWNER-BARON';
     const activeModel = localStorage.getItem('sellmate_owner_model_override') || 'glm-5.3-flash';
     if (onStatusUpdate) {
       onStatusUpdate(`Sende Anfrage an sicheren Cloud-Proxy (${activeModel})...`);
     }
-    addDiagLog(`Cloud-Proxy Vision-Request (Code: "${getInviteCode()}", Modell: ${activeModel}, Bilder: ${images.length}, Credit-Abzug: ${deductCredit})...`);
+    addDiagLog(`Cloud-Proxy Vision-Request (Code: "${codeToSend}", Modell: ${activeModel}, Bilder: ${images.length}, Credit-Abzug: ${deductCredit})...`);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs || 40000);
     try {
       const res = await callProxyApi(
         {
-          inviteCode: getInviteCode(),
+          inviteCode: codeToSend,
           action: 'vision',
           deductCredit,
           payload: {
