@@ -1,6 +1,8 @@
 // api/proxy-ai.js – Vercel Serverless Function (Node.js runtime)
 // Unterstützt: Invite-Code Prüfung, KI-Proxy, Tavily-Proxy & Automatische GitHub Fehler-Tickets
 
+import { timingSafeEqual } from 'node:crypto';
+
 const GITHUB_REPO = process.env.GITHUB_REPO || 'krautbaron/sellmate-ai';
 
 function buildSupabaseHeaders(supabaseKey, extra = {}) {
@@ -173,10 +175,14 @@ export default async function handler(req, res) {
     clientGithubPat = ''
   } = req.body || {};
 
-  const serverAdminPassword = (process.env.ADMIN_PASSWORD || 'KrautMate!2026').trim();
+  // Kein Standard-Passwort im Code: Ohne ADMIN_PASSWORD in Vercel ist das Owner-Cockpit gesperrt.
+  const serverAdminPassword = (process.env.ADMIN_PASSWORD || '').trim();
   function isAdminAuthorized(body) {
+    if (!serverAdminPassword) return false;
     const entered = String(body?.adminPassword || body?.payload?.adminPassword || body?.payload?.password || '').trim();
-    return entered === serverAdminPassword;
+    const a = Buffer.from(entered);
+    const b = Buffer.from(serverAdminPassword);
+    return a.length === b.length && timingSafeEqual(a, b);
   }
 
   // ---------------------------------------------------------------------------
@@ -197,6 +203,9 @@ export default async function handler(req, res) {
   }
 
   if (action === 'verify_admin') {
+    if (!serverAdminPassword) {
+      return res.status(503).json({ valid: false, error: 'ADMIN_PASSWORD ist in Vercel nicht gesetzt – Owner-Cockpit deaktiviert.' });
+    }
     if (isAdminAuthorized(req.body)) {
       return res.status(200).json({ valid: true, message: 'Admin autorisiert.' });
     }

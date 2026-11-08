@@ -1754,24 +1754,30 @@ if (btnAdminCreateCode) {
 if (btnAdminActivateOwnerCode) {
   btnAdminActivateOwnerCode.addEventListener('click', async () => {
     btnAdminActivateOwnerCode.disabled = true;
+    // Geheimer, zufälliger Owner-Code statt eines festen Codes im öffentlichen Quelltext.
+    // Ein bereits aktiver eigener Owner-Code auf diesem Gerät wird wiederverwendet.
+    const currentCode = getInviteCode();
+    const ownerCode = currentCode.startsWith('OWNER-') && currentCode !== 'OWNER-BARON'
+      ? currentCode
+      : `OWNER-${Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
     try {
       const res = await callProxyApi({
         action: 'admin_upsert_code',
-        payload: { code: 'OWNER-BARON', label: 'Owner Baron', creditsTotal: 9999, creditsUsed: 0, isActive: true }
+        payload: { code: ownerCode, label: 'Owner', creditsTotal: 9999, creditsUsed: 0, isActive: true }
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data?.error || `HTTP ${res.status}`);
       }
       saveInviteStatus({
-        code: 'OWNER-BARON',
+        code: ownerCode,
         remainingCredits: 9999,
         totalCredits: 9999,
-        label: 'Owner Baron',
+        label: 'Owner',
         hasServerTavily: true
       });
       updateApiKeyIndicator();
-      showToast('👑 Owner-Code (9999 Credits) aktiviert!');
+      showToast(`👑 Owner-Code ${ownerCode} (9999 Credits) aktiviert – geheim halten!`);
       refreshAdminCodesList();
     } catch (err) {
       showToast(`Fehler beim Aktivieren: ${err.message}`);
@@ -2764,7 +2770,10 @@ async function executeUnifiedVisionRequest({ systemPrompt, userPrompt, images = 
   const shouldUseProxy = isInviteModeActive() || activeProv === 'neuralwatt' || !getApiKey();
 
   if (shouldUseProxy) {
-    const codeToSend = inviteCode || 'OWNER-BARON';
+    if (!inviteCode) {
+      throw buildApiError('Kein Einladungscode hinterlegt. Bitte gib in den Einstellungen deinen Einladungscode oder einen eigenen API-Key ein.', 401);
+    }
+    const codeToSend = inviteCode;
     let activeModel = localStorage.getItem('sellmate_owner_model_override');
     if (!activeModel || activeModel === 'glm-5.3-flash') {
       activeModel = 'kimi-k3-fast';
